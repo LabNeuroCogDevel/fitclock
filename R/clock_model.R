@@ -38,7 +38,8 @@
 #'    }
 #'
 #' @importFrom methods setRefClass
-#' @export
+#' @export clock_model
+#' @exportClass clock_model
 
 #add a reset method here to set values back to initial (clear for re-using the same alg object with a new dataset)
 #actually, couldn't we just note when the dataset is updated and zero out parameters?

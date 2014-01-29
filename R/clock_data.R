@@ -20,7 +20,8 @@
 #'    }
 #' 
 #' @importFrom methods setRefClass
-#' @export 
+#' @export clockdata_group
+#' @exportClass clockdata_group
 clockdata_group <- setRefClass(
     Class="clockdata_group",
     fields=list(
@@ -98,7 +99,8 @@ clockdata_group <- setRefClass(
 #' 
 #' @importFrom ggplot2 ggplot
 #' @importFrom methods setRefClass
-#' @export
+#' @export clockdata_subject
+#' @exportClass clockdata_subject
 clockdata_subject <- setRefClass(
     Class="clockdata_subject",
     fields=list(
@@ -224,8 +226,9 @@ clockdata_subject <- setRefClass(
 #'    }
 #' 
 #' @importFrom methods setRefClass
-#' @export
-clock_it <- setRefClass(
+#' @export clock_fit
+#' @exportClass clock_fit
+clock_fit <- setRefClass(
     Class="clock_fit",
     fields=list(
         RTobs="matrix", #trial vector (run), run x trial matrix (subject), or subject x run x trial matrix (group)
@@ -277,7 +280,8 @@ clock_it <- setRefClass(
 #' 
 #' @importFrom ggplot2 ggplot
 #' @importFrom methods setRefClass
-#' @export 
+#' @export clockdata_run
+#' @exportClass clockdata_run
     clockdata_run <- setRefClass(
     Class="clockdata_run",
     fields=list(
@@ -321,7 +325,7 @@ clock_it <- setRefClass(
           rew_function <<- rew_function
           run_condition <<- run_condition
           
-          reset_workspace() #initial setup of workspace
+          initialize_workspace() #initial setup of workspace
           
           callSuper(...) #assign unmatched args
           
