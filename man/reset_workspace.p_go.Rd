@@ -1,0 +1,14 @@
+\name{reset_workspace.p_go}
+\alias{reset_workspace.p_go}
+\title{reset workspace for go parameter}
+\usage{
+\method{reset_workspace}{p_go}(obj)
+}
+\arguments{
+  \item{obj}{the parameter object whose workspace will be
+  reset.}
+}
+\description{
+Resets the Go term for scaling PPE speedup
+}
+

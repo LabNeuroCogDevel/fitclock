@@ -1,0 +1,21 @@
+\docType{data}
+\name{clocksubject_1000}
+\alias{clocksubject_1000}
+\title{clocksubject_1000}
+\format{a data.frame containing 9 runs of 40 trials, representing a 3x3 design:
+      rewFunc: IEV, DEV, CEVR; and emotion: fear, happy, scrambled.}
+\source{
+Laboratory for Neurocognitive Development, University of
+Pittsburgh
+}
+\usage{
+clocksubject_1000
+}
+\description{
+This dataset is an example of multi-run single subject data
+from the clock task.
+}
+\author{
+Michael Hallquist, 2013-01-27
+}
+

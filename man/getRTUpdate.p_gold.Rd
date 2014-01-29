@@ -1,0 +1,19 @@
+\name{getRTUpdate.p_gold}
+\alias{getRTUpdate.p_gold}
+\title{Compute reaction time contribution for nu (adapt toward best reward)}
+\usage{
+\method{getRTUpdate}{p_gold}(obj, theta)
+}
+\arguments{
+  \item{obj}{the parameter object to be used for
+  prediction.}
+
+  \item{theta}{named vector of current values for
+  parameters in model.}
+}
+\description{
+Compute reaction time contribution for nu (adapt toward
+best reward)
+}
+\keyword{internal}
+

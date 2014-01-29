@@ -1,0 +1,25 @@
+\name{go}
+\alias{go}
+\title{go: speedup of RT for positive prediction error.}
+\usage{
+go(min_value = 0.01, max_value = 5, init_value = 0.2,
+  cur_value = init_value, par_scale = 0.1, by = NULL)
+}
+\arguments{
+  \item{min_value}{Lower bound for go parameter.}
+
+  \item{max_value}{Upper bound for go parameter.}
+
+  \item{init_value}{Initial value for go parameter.}
+
+  \item{cur_value}{Current value for go parameter.}
+
+  \item{par_scale}{Expected parameter scale.}
+
+  \item{by}{character vector defining one or more run-level
+  fields over which this parameter varies.}
+}
+\description{
+go: speedup of RT for positive prediction error.
+}
+

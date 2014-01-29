@@ -1,0 +1,19 @@
+\name{getRTUpdate.p_autocorrPrevRT}
+\alias{getRTUpdate.p_autocorrPrevRT}
+\title{Compute reaction time contribution for lambda (autocorr with RT_t-1)}
+\usage{
+\method{getRTUpdate}{p_autocorrPrevRT}(obj, theta)
+}
+\arguments{
+  \item{obj}{the parameter object to be used for
+  prediction.}
+
+  \item{theta}{named vector of current values for
+  parameters in model.}
+}
+\description{
+Compute reaction time contribution for lambda (autocorr
+with RT_t-1)
+}
+\keyword{internal}
+

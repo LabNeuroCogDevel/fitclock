@@ -1,0 +1,20 @@
+Package: fitclock
+Type: Package
+Title: An R package to fit RT and Reward behavioral data from Michael Frank
+    clock task.
+Version: 0.7
+Date: 2014-01-27
+Author: Who wrote it
+Maintainer: Michael Hallquist <michael.hallquist@gmail.com>
+Description: Object-oriented implementation of the time clock algorithm, a
+    multiple regression-style prediction of reaction time on each trial of the
+    clock task. Implementation fits the standard model including strategic
+    exploration (adapting toward uncertainty) from Frank et al. 2009 Nat Neuro,
+    and also allows for parameters to vary by contingency or run condition
+    (e.g., emotion). Functions are also provided to convolve trial-wise
+    regressors with a hemodynamic response function to generate an fMRI design
+    matrix.
+License: GPL
+Depends:
+    methods,
+    ggplot2

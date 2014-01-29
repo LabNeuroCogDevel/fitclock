@@ -1,0 +1,25 @@
+\docType{class}
+\name{clock_fit-class}
+\alias{clock_fit-class}
+\title{an object to store the results of a model being fit to a dataset}
+\description{
+Returned by the $fit() method of clock_model.
+}
+\section{Fields}{
+  \describe{ \item{\code{RTobs}:}{ matrix of observed
+  reaction times. Can be subjects x runs x trials, runs x
+  trials, or just 1 x trials. } \item{\code{RTpred}:}{
+  matrix of predicted reaction times. }
+  \item{\code{Reward}:}{ matrix of obtained rewards. }
+  \item{\code{total_SSE}:}{ total sum of squared errors
+  across all fitted data. } \item{\code{SSE}:}{ vector or
+  matrix of SSEs for each subject and run }
+  \item{\code{AIC}:}{ vector or matrix of AICs for each
+  subject and run } \item{\code{elapsed_time}:}{ numeric
+  vector of elapsed time for optimizing the parameters }
+  \item{\code{profile_data}:}{ \code{list} of profile
+  timing information from Rprof, if requested during $fit }
+  \item{\code{opt_data}:}{ \code{list} of output from
+  optimizer, nlminb. } }
+}
+

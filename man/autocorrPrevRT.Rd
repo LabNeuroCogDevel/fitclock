@@ -1,0 +1,25 @@
+\name{autocorrPrevRT}
+\alias{autocorrPrevRT}
+\title{lambda: autocorrelation with previous timepoint.}
+\usage{
+autocorrPrevRT(min_value = 0, max_value = 1, init_value = 0.3,
+  cur_value = init_value, par_scale = 0.1, by = NULL)
+}
+\arguments{
+  \item{min_value}{Lower bound for lambda parameter.}
+
+  \item{max_value}{Upper bound for lambda parameter.}
+
+  \item{init_value}{Initial value for lambda parameter.}
+
+  \item{cur_value}{Current value for lambda parameter.}
+
+  \item{par_scale}{Expected parameter scale.}
+
+  \item{by}{character vector defining one or more run-level
+  fields over which this parameter varies.}
+}
+\description{
+Weight for similarity of RT_t and RT_t-1, ranging from 0-1.
+}
+

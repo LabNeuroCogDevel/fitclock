@@ -1,0 +1,12 @@
+\name{initialize_par}
+\alias{initialize_par}
+\title{helper function to check parameter values and bounds at instantiation}
+\usage{
+initialize_par(obj, min_value = NULL, max_value = NULL, init_value = NULL,
+  cur_value = NULL, par_scale = NULL, by = NULL)
+}
+\description{
+Also sets up by-condition field and empty workspace, w.
+}
+\keyword{internal}
+

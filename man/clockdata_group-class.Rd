@@ -1,0 +1,23 @@
+\docType{class}
+\name{clockdata_group-class}
+\alias{clockdata_group-class}
+\title{dataset object for group-level data (multiple subjects with multiple runs)}
+\description{
+dataset object for group-level data (multiple subjects with
+multiple runs)
+}
+\section{Fields}{
+  \describe{ \item{\code{subjects}:}{ \code{list} of
+  clockdata_subject objects defining the group. }
+  \item{\code{dataset_name}:}{ optional character vector
+  identifying the dataset. } }
+}
+
+\section{Methods}{
+  \describe{ \item{\code{add_subjects(...)}:}{ add one or
+  more clockdata_subject objects to the dataset. }
+  \item{\code{delete_subjects(subjects_to_delete=NULL)}:}{
+  delete subjects with IDs specified by character vector
+  \code{subjects_to_delete}. } }
+}
+

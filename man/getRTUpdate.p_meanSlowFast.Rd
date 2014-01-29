@@ -1,0 +1,19 @@
+\name{getRTUpdate.p_meanSlowFast}
+\alias{getRTUpdate.p_meanSlowFast}
+\title{Compute reaction time contribution for rho (slow-fast mean adaptation)}
+\usage{
+\method{getRTUpdate}{p_meanSlowFast}(obj, theta)
+}
+\arguments{
+  \item{obj}{the parameter object to be used for
+  prediction.}
+
+  \item{theta}{named vector of current values for
+  parameters in model.}
+}
+\description{
+Compute reaction time contribution for rho (slow-fast mean
+adaptation)
+}
+\keyword{internal}
+

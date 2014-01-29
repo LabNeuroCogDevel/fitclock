@@ -1,0 +1,30 @@
+\docType{class}
+\name{clockdata_subject-class}
+\alias{clockdata_subject-class}
+\title{dataset object for subject-level data (multiple runs within a single subject)}
+\description{
+If the \code{csv_file} field is passed at instantiation,
+data will be imported from the file specified.
+}
+\section{Fields}{
+  \describe{ \item{\code{subject_ID}:}{ unique identifier
+  string for subject. } \item{\code{runs}:}{ \code{list} of
+  clockdata_run objects defining the subject. }
+  \item{\code{csv_file}:}{ comma-separated file containing
+  behavior for subject (one or more runs, each with many
+  trials) } }
+}
+
+\section{Methods}{
+  \describe{ \item{\code{add_runs(r_objs)}:}{ add a list of
+  clockdata_run objects, \code{r_objs} to the subject
+  dataset. }
+  \item{\code{delete_subjects(subjects_to_delete=NULL)}:}{
+  delete subjects with IDs specified by character vector
+  \code{subjects_to_delete}. }
+  \item{\code{delete_runs(runs_to_delete=NULL)}:}{ a
+  numeric vector of run numbers to delete. }
+  \item{\code{plot_runs()}:}{ plot observed RTs and reward
+  for all runs. (not implemented yet } }
+}
+

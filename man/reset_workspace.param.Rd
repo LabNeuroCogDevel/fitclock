@@ -1,0 +1,15 @@
+\name{reset_workspace.param}
+\alias{reset_workspace.param}
+\title{Generic reset method for all parameters.}
+\usage{
+\method{reset_workspace}{param}(obj)
+}
+\arguments{
+  \item{obj}{the parameter object whose workspace will be
+  reset.}
+}
+\description{
+Currently this resets the trialwise RT prediction
+contribution of each parameter to NA.
+}
+

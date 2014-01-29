@@ -1,0 +1,29 @@
+\name{goForGold}
+\alias{goForGold}
+\title{goForGold: adapt RT toward the best reward thus far.}
+\usage{
+goForGold(min_value = 0, max_value = 100, init_value = 0.1,
+  cur_value = init_value, par_scale = 0.1, by = NULL,
+  bestRT_t1 = numeric(0))
+}
+\arguments{
+  \item{min_value}{Lower bound for goForGold parameter.}
+
+  \item{max_value}{Upper bound for goForGold parameter.}
+
+  \item{init_value}{Initial value for goForGold parameter.}
+
+  \item{cur_value}{Current value for goForGold parameter.}
+
+  \item{par_scale}{Expected parameter scale.}
+
+  \item{by}{character vector defining one or more run-level
+  fields over which this parameter varies.}
+
+  \item{bestRT_t1}{assumption of best reaction time on the
+  first trial}
+}
+\description{
+goForGold: adapt RT toward the best reward thus far.
+}
+
