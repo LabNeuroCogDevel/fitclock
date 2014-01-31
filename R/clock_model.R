@@ -260,6 +260,17 @@ clock_model <- setRefClass(
           #track optimization
           if (profile) { Rprof("tc_prof.out") }
           
+          #possibilities for parallel optimization
+          #require(DEoptim)
+          #elapsed_time <- system.time(optResult <- DEoptim(fn=.self$predict, 
+          #        lower=lower, upper=upper, control=list(NP=10*length(lower), itermax=500, parallelType=0)))
+          
+browser()
+          require(ppso)
+          elapsed_time <- system.time(optResult <- optim_ppso_robust(objective_function=.self$predict, nslaves=6,
+                  initial_estimates=as.matrix(initialValues), parameter_bounds=cbind(lower, upper),
+                  max_number_function_calls=200, projectfile=NULL, logfile=NULL))
+          
           #this is the most sensible, and corresponds to optim above (and is somewhat faster)
           elapsed_time <- system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, 
                   lower=lower, upper=upper, scale=1/params_par_scale(),
@@ -466,6 +477,7 @@ clock_model <- setRefClass(
             
           }
           
+          SSE <- sum((w$RTobs - w$RTpred)^2) #sum of squared error: cost
           #cat("SSE: ", SSE, "\n")
           return(SSE)
         })
