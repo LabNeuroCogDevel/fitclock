@@ -138,16 +138,19 @@ clockdata_subject <- setRefClass(
           d_split <- split(sdata, sdata$run)
           
           for (d in d_split) {
+            r <- clockdata_run(
+                run_number=d$run[1L],
+                RTobs=d$rt, 
+                Reward=d$score,
+                global_trial_number=d$trial,
+                rew_function=as.character(d$rewFunc[1L]),
+                run_condition=as.character(d$emotion[1L]),
+                orig_data_frame=d)
             
-            .self$add_runs(            
-                clockdata_run(
-                    run_number=d$run[1L],
-                    RTobs=d$rt, 
-                    Reward=d$score,
-                    global_trial_number=d$trial,
-                    rew_function=as.character(d$rewFunc[1L]),
-                    run_condition=as.character(d$emotion[1L]),
-                    orig_data_frame=d))
+            if ("clock_onset" %in% names (d)) { r$clock_onset <- d$clock_onset }
+            if ("feedback_onset" %in% names (d)) { r$feedback_onset <- d$feedback_onset }
+            
+            .self$add_runs(r)
           }
           
         },
@@ -240,15 +243,22 @@ clock_fit <- setRefClass(
         AIC="numeric", 
         elapsed_time="numeric",
         profile_data="list",
-        opt_data="list"
-        ),
-        methods=list(
-            initialize=function(...) {
-              callSuper(...) #default assignment of fields
-            })
-    )
+        opt_data="list", #list of results from optimizer
+        pred_contrib="list",
+        clock_onset="matrix",
+        feedback_onset="matrix"
+    ),
+    methods=list(
+        initialize=function(...) {
+          callSuper(...) #default assignment of fields
+        },
+        buildMRIDesignMatrix=function() {
+          
+        }
+        )
+)
 
-    
+
 #' dataset object for run-level data (multiple trials)
 #' 
 #' Note that the workspace used during the fitting process resides at the level of the
@@ -282,7 +292,7 @@ clock_fit <- setRefClass(
 #' @importFrom methods setRefClass
 #' @export clockdata_run
 #' @exportClass clockdata_run
-    clockdata_run <- setRefClass(
+clockdata_run <- setRefClass(
     Class="clockdata_run",
     fields=list(
         w="environment",
@@ -295,7 +305,9 @@ clock_fit <- setRefClass(
         rew_function="character",
         run_condition="character", #optional string specifying the conditions for this run (e.g., fear faces)
         by_lookup="character", #at fit-time, alg copies in a named character vector that is the union of all relevant fields for run definition (usually rew_function + run_condition) 
-        orig_data_frame="data.frame" #optional data.frame from original experiment run containing full saved data (in case there are additional variables of interest)
+        orig_data_frame="data.frame", #optional data.frame from original experiment run containing full saved data (in case there are additional variables of interest)
+        clock_onset="numeric", #vector of clock stimulus onset times (in seconds)
+        feedback_onset="numeric" #vector of feedback stimulus onset times (in seconds)
     ),
     methods=list(
         initialize=function(run_number=NA_integer_, RTobs=NA_integer_, Reward=NA_integer_, global_trial_number=NA_integer_,
@@ -342,6 +354,7 @@ clock_fit <- setRefClass(
           w$RTpred[1L] <<- w$RTobs[1L] #cannot predict first trial behavior per se, so use observed RT so that t=1 doesn't contribute to SSE
           w$rpe     <<- rep(NA_real_, w$ntrials) #vector of reward prediction errors
           w$V       <<- rep(NA_real_, w$ntrials) #expected value vector
+          
           if (!missing(prior_w) && !is.null(prior_w) && is.environment(prior_w)) {
             #cat("using priorV: ", prior_w$V[length(prior_w$V)], "\n") #carry forward expected value from last trial
             w$V[1L]   <<- prior_w$V[length(prior_w$V)] #carry forward expected value from last trial

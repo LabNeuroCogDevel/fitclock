@@ -53,6 +53,7 @@ clock_model <- setRefClass(
         AIC="numeric",
         clock_data="ANY", #allow this to be dataset, subject, or run,
         use_global_avg_RT="logical",
+        fit_RT_diffs="logical", #whether to difference RTs prior to fit (e.g., Badre)
         global_avg_RT="numeric",
         all_by="character" #character vector that is the union of all run-level fields defining vary-by-run parameters
     ),
@@ -90,7 +91,7 @@ clock_model <- setRefClass(
           
           #force names of list to match corresponding parameter names
           #this discards any list names provided by user
-          names(append) <- sapply(append, function(p) { return(p$name) })
+          #names(append) <- sapply(append, function(p) { return(p$name) })
           
           for (elementName in names(append)) {
             if (!is.null(target[[elementName]])) warning("Element is already present in target list: ", elementName)
@@ -105,11 +106,9 @@ clock_model <- setRefClass(
           #accept a variable number of parameter objects
           p_objs <- as.list(match.call())[-1L] #first element of match.call is a class for refMethodDef for the clock_model object
           p_objs <- lapply(p_objs, eval) #force initialization of param objects (otherwise stays as a language expression)
-          
-          #pass along address of shared workspace to sub-objects
-          #now diverting workspace issues until just before fit
-          #allow clock_model object to be completely setup independent of data
-          #p_objs <- lapply(p_objs, function(p) { p$w <- .self$w; p$reset_workspace(); return(p) })
+                    
+          #use class names to name parameter list
+          names(p_objs) <- lapply(p_objs, function(p) { class(p)[1L] })
           
           params <<- lappend(params, p_objs)
         },
@@ -127,7 +126,8 @@ clock_model <- setRefClass(
           setup_param_by()
         },
         
-        #expand parameters to accommodate per-condition variation, depending on clock_data
+        #expand parameters to accommodate per-condition variation, depending on clock_data\
+        #TODO: problem that if we set the data up front, then add a by, but don't call set_data
         setup_param_by=function() {
           if (inherits(clock_data, "uninitializedField")) { return(invisible(NULL)) } #do nothing
           
@@ -150,14 +150,17 @@ clock_model <- setRefClass(
               conMat_df[,n] <- paste(names(conMat_df)[n], conMat_df[,n], sep=":")
             }
             params <<- lapply(params, function(p) {
-                  p$base_name <- p$name[1L] #just basic parameter name without condition (used for getTheta lookup) 
+                  p$base_name <- p$name#[1L] #just basic parameter name without condition (used for getTheta lookup) 
                   if (!is.null(p$by)) {
                     #make sure that by is sorted alpha to correspond with getTheta
                     p$by <- sort(p$by)
                     #format parameter names into <param>/condition:value/condition:value/.../ for passing to optimizer (parse within predict)
                     #for now, leave off param name, just keep condition names
                     #when calling params_initial, etc., lapply will include param name in vector
-                    p$name <- paste(p$name, unique(apply(conMat_df[,p$by, drop=FALSE], 1, paste, collapse="/")), sep="/") #alpha sort is important so that getTheta can assume that order of theta condition string is alphabetical
+                    #p$name <- paste(p$name, unique(apply(conMat_df[,p$by, drop=FALSE], 1, paste, collapse="/")), sep="/") #alpha sort is important so that getTheta can assume that order of theta condition string is alphabetical
+                    
+                    p$name <- sapply(p$name, function(n) { paste(n, unique(apply(conMat_df[,p$by, drop=FALSE], 1, paste, collapse="/")), sep="/") }) #alpha sort is important so that getTheta can assume that order of theta condition string is alphabetical
+                    
                     #p$name <- unique(apply(conMat_df[,p$by, drop=FALSE], 1, paste, collapse="/"))
                     #I suppose using the first element as the value to replicate could backfire if an clock_model object is recycled across datasets.
                     p$init_value <- rep_len(p$init_value[1L], length(p$name))
@@ -220,7 +223,6 @@ clock_model <- setRefClass(
         },
         
         fit=function(toFit=NULL, random_starts=NULL, profile=TRUE) {
-          
           #can pass in new dataset at $fit call
           #if not passed in, use the current clock_data field
           if (!is.null(toFit)) {
@@ -234,7 +236,9 @@ clock_model <- setRefClass(
           if (inherits(clock_data, "uninitializedField")) { stop("clock dataset must be provided prior to $fit(). Set using $set_data()") }
           
           #require(optimx)
-          
+          optimizer <- "nlminb"
+          #optimizer <- "optim"
+  
           #call predict using optimizer
           if (length(initialValues) == 1L) { method="Brent"
           } else { method="L-BFGS-B" }
@@ -242,48 +246,97 @@ clock_model <- setRefClass(
           #lapply(params, function(p) { p$value_history <- numeric(0) }) #reset value history for all parameters prior to fit REFCLASS VERSION
           params <<- lapply(params, function(p) { p$value_history <- numeric(0); return(p) }) #reset value history for all parameters prior to fit S3 VERSION
           
-          #initialValues <- initialValues / params_par_scale() #scale prior to optimization
-          
-          #system.time(optResult <- optim(par=initialValues, fn=.self$predict, method=method,
-          #        lower=lower, upper=upper,
-          #        control=list(parscale=params_par_scale()),
-          #        updateFields=FALSE, trackHistory=TRUE))
-          
-          if (!is.null(random_starts) && is.numeric(random_starts)) {
-            require(foreach)
-            require(doMC)
-            njobs <- min(parallel::detectCores, random_starts)
-            registerDoMC(njobs)
+          #worker sub-function to be paired with multiple random starts
+          fitWorker <- function(initialValues=NULL, optimizer="nlminb") {
+            
+            #track optimization
+            if (profile) { 
+              prof_file <- tempfile(pattern="Rprof", tmpdir=".", fileext=".out")
+              Rprof(prof_file)
+            }
+            
+            if (optimizer=="optim") {
+              elapsed_time <- system.time(optResult <- optim(par=initialValues, fn=.self$predict, method=method,
+                      lower=lower, upper=upper,
+                      control=list(parscale=params_par_scale()),
+                      updateFields=FALSE, trackHistory=FALSE))
+            } else if (optimizer=="nlminb") {
+              #this is the most sensible, and corresponds to optim above (and is somewhat faster)
+              elapsed_time <- system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, 
+                      lower=lower, upper=upper, scale=1/params_par_scale(),
+                      updateFields=FALSE, trackHistory=FALSE)) #I think no tracking of history to avoid collisions in shared objects
+            }
+            
+            if (profile) {
+              Rprof(NULL) #stop profiling
+              
+              prof <- summaryRprof(prof_file) #, lines = "both")
+              unlink(prof_file) #remove profile file
+            } else {
+              prof <- list()
+            }
+            
+            if (optResult$convergence == 0) {
+              #set SSE for fit
+              if (optimizer=="nlminb") { 
+                SSE <- optResult$objective
+              } else if (optimizer=="optim") {
+                SSE <- optResult$value
+              }
+              
+              theta <- optResult$par
+              
+            } else {
+              warning("optimization failed.")
+              SSE <- NA
+              theta <- NA
+            }
+            
+            clock_fit(total_SSE=SSE, elapsed_time=unclass(elapsed_time), opt_data=optResult, profile_data=prof)
+            
+            #list(SSE=SSE, theta=theta, opt_data=optResult, prof=prof, elapsed_time=elapsed_time)
             
           }
           
-          #track optimization
-          if (profile) { Rprof("tc_prof.out") }
-          
+                    
+          if (!is.null(random_starts) && is.numeric(random_starts)) {
+            require(foreach)
+            require(doMC)
+            njobs <- min(parallel::detectCores(), random_starts)
+            registerDoMC(njobs)
+            
+            #create a set of initial values by runif simulation between parameter bounds
+            
+            initMat <- matrix(NA, nrow=random_starts, ncol=length(initialValues))
+            for (r in 1:random_starts) {
+              initMat[r,] <- sapply(1:length(initialValues), function(p) {
+                    runif(1, lower[p], upper[p]) #uniform sample between bounds
+                  })
+            }
+            initMat <- rbind(initMat, initialValues)
+
+            multFits <- foreach(r=iter(1:random_starts), .inorder=FALSE) %dopar% {
+              fitWorker(initialValues=initMat[r,], optimizer="optim")
+            }
+            
+            browser()
+            #need to find the best one here
+            
+          } else {
+            fit_output <- fitWorker(initialValues)
+          }
+                    
           #possibilities for parallel optimization
           #require(DEoptim)
           #elapsed_time <- system.time(optResult <- DEoptim(fn=.self$predict, 
           #        lower=lower, upper=upper, control=list(NP=10*length(lower), itermax=500, parallelType=0)))
           
-browser()
-          require(ppso)
-          elapsed_time <- system.time(optResult <- optim_ppso_robust(objective_function=.self$predict, nslaves=6,
-                  initial_estimates=as.matrix(initialValues), parameter_bounds=cbind(lower, upper),
-                  max_number_function_calls=200, projectfile=NULL, logfile=NULL))
+          #require(ppso)
+          #elapsed_time <- system.time(optResult <- optim_ppso_robust(objective_function=.self$predict, nslaves=6,
+          #        initial_estimates=as.matrix(initialValues), parameter_bounds=cbind(lower, upper),
+          #        max_number_function_calls=200, projectfile=NULL, logfile=NULL))
           
-          #this is the most sensible, and corresponds to optim above (and is somewhat faster)
-          elapsed_time <- system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, 
-                  lower=lower, upper=upper, scale=1/params_par_scale(),
-                  updateFields=FALSE, trackHistory=TRUE))
-          
-          if (profile) {
-            Rprof(NULL) #stop profiling
-            
-            prof <- summaryRprof("tc_prof.out")#, lines = "both")
-            unlink("tc_prof.out") #remove profile file
-          } else {
-            prof <- list()
-          }
+
           
           #this is roughly what is suggested in the PORT documentation (1/max scaling). But it's slower than 1/magnitude above.
           #system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, lower=lower, upper=upper, scale=1/upper, #scale=c(1, 100, 100, 100, 100),
@@ -313,20 +366,20 @@ browser()
           #time <- system.time(p <- optimx(par=initialValues, fn=.self$predict, lower=lower, upper=upper, method=method, control=list(parscale=c(1e3, 1e0, 1e-1, 1e-1))))
           #time <- system.time(p <- optimx(par=initialValues, fn=.self$predictNoLookup, lower=lower, upper=upper, method=method, updateFields=FALSE))
           
-          if (optResult$convergence == 0) {
+          if (fit_output$opt_data$convergence == 0) {
             #success
             #lapply(params, function(p) { p$cur_value <- optResult$par[p$name] }) #set current parameter values based on optimization REFCLASS
-            #need to unname the parameter value to avoid getting a named vector, which lapply concatenates with list names (e.g., lambda.lambda)
-            params <<- lapply(params, function(p) { p$cur_value <- unname(optResult$par[p$name]); return(p) }) #set current parameter values based on optimization S3
+            params <<- lapply(params, function(p) { p$cur_value <- fit_output$opt_data$par[p$name]; return(p) }) #set current parameter values based on optimization S3
             
             #compute trialwise predictions with optimized parameters
             .self$predict(updateFields=TRUE, trackHistory=FALSE)
             
             #set SSE for fit
-            SSE <<- optResult$objective
-            
-            ##TODO: Would be nice if $fit returned a fit object that had parameter values, the constituent environments that were fit,
-            # and key workspace variables as data.frames (e.g., predicted RTs, observed RTs, trial-by-trial param contributions, etc.
+            if (optimizer=="nlminb") { 
+              SSE <<- fit_output$opt_data$objective
+            } else if (optimizer=="optim") {
+              SSE <<- fit_output$opt_data$value
+            }
             
             ##only works for subject and run fits, not group
             if (class(clock_data) == "clockdata_subject") {
@@ -334,25 +387,41 @@ browser()
               RTobs <- do.call(rbind, lapply(clock_data$runs, function(r) { r$RTobs }))
               RTpred <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$RTpred }))
               Reward <- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))
+              #get a list prediction contributions of each parameter per run: each element is a params x trials matrix 
+              pred_contrib <- lapply(clock_data$runs, function(r) { do.call(rbind, r$w$pred_contrib) } )
+              clock_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$clock_onset) == 0 ) NA else r$clock_onset }))
+              feedback_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$feedback_onset) == 0 ) NA else r$feedback_onset }))
+              #flatten this? 
+              #arr_pred_contrib <- do.call(abind, list(along=0, pred_contrib))
+              
             } else if (class(clock_data) == "clockdata_run") {
               ntrials <- clock_data$w$ntrials
               RTobs <- clock_data$RTobs
               RTpred <- clock_data$w$RTpred
               Reward <- clock_data$Reward
+              pred_contrib <- list(do.call(rbind, clock_data$w$pred_contrib))
+              clock_onset <- if (length(clock_data$clock_onset) == 0) NA else clock_data$clock_onset
+              feedback_onset <- if (length(clock_data$feedback_onset) == 0) NA else clock_data$feedback_onset
             }
             
-            nparams <- length(optResult$par) #number of free parameters
+            nparams <- length(fit_output$opt_data$par) #number of free parameters
             
             AIC <<- ntrials*(log(2*pi*(SSE/ntrials))+1) + 2*nparams
             
-            fitResult <- clock_fit(RTobs=RTobs, RTpred=RTpred, Reward=Reward, total_SSE=SSE, AIC=AIC, 
-                elapsed_time=unclass(elapsed_time), opt_data=optResult, profile_data=prof, theta=as.matrix(list_params()))
+            fit_output$RTobs <- RTobs
+            fit_output$RTpred <- RTpred
+            fit_output$Reward <- Reward
+            fit_output$pred_contrib <- pred_contrib
+            fit_output$clock_onset <- clock_onset
+            fit_output$feedback_onset <- feedback_onset
+            fit_output$AIC <- AIC
+            fit_output$theta <- as.matrix(list_params())
           } else {
             warning("Optimization failed.")
-            fitResult <- NULL
+            fit_output <- NULL
           }
           
-          return(fitResult)
+          return(fit_output)
           
         },
         
@@ -361,6 +430,8 @@ browser()
           #values from prior runs are carried forward.
           #this is an clock_model-level decision, not subject, run, parameter, etc.
           
+          #cat("theta: ", paste(theta, collapse=", "), "\n")
+          #print(theta)
           totalSSE <- 0
           
           #track value of parameters over the course of optimization
@@ -384,7 +455,7 @@ browser()
               
               #pass forward theta (likely from optim)
               run_SSE <- fit_run(theta=theta, to_fit=clock_data$runs[[r]], prior_w=prior_w, updateFields=updateFields)
-              clock_data$runs[[r]]$SSE <- run_SSE #copy run
+              clock_data$runs[[r]]$SSE <<- run_SSE #copy run
               totalSSE <- totalSSE + run_SSE
             }
             
@@ -422,15 +493,19 @@ browser()
           #optim using Brent, or optimize fail to pass names of parameters into predict.
           #names are critical for the params to lookup properly.
           if (is.null(names(theta))) {
-            #warning("Unnamed theta vector passed to predict. Looking up from parameter list.")
-            names(theta) <- names(params) #sapply(params, function(p) { return(p$name) })
+            warning("Unnamed theta vector passed to predict. Looking up from parameter list.")
+            names(theta) <- unlist(lapply(params, function(p) { p$name }))
           }
           
           #reset workspace before proceeding!
           
           w$RT_new  <- w$RTobs[1L] #use observed RT as predicted RT for t=1
           w$RT_last <- w$RTobs[1L]
-          w$RT_last2 <- w$RTobs[1L]
+          if ("stickyWeight" %in% names(theta)) {
+            w$RT_last2 <- 0 #use a 0 starting point for t-2 RT per MF (not sure why yet). #TODO: ask about this
+          } else {
+            w$RT_last2 <- w$RTobs[1L]
+          }
           
           ##TODO: Risk that we initialize some vals above (like initial V), but predict is called iteratively for optimization, so values will not be reset here if they were set in initialize
           

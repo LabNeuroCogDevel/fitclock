@@ -13,10 +13,10 @@
 #' Also sets up by-condition field and empty workspace, w.
 #' @keywords internal
 initialize_par <- function(obj, min_value=NULL, max_value=NULL, init_value=NULL, cur_value=NULL, par_scale=NULL, by=NULL) {
-  stopifnot(cur_value <= max_value)
-  stopifnot(cur_value >= min_value)
-  stopifnot(init_value <= max_value)
-  stopifnot(init_value >= min_value)
+  stopifnot(all(cur_value <= max_value))
+  stopifnot(all(cur_value >= min_value))
+  stopifnot(all(init_value <= max_value))
+  stopifnot(all(init_value >= min_value))
   
   obj$min_value <- min_value
   obj$max_value <- max_value
@@ -61,7 +61,6 @@ meanRT <- function(min_value=100, max_value=5000, init_value=1000, cur_value=ini
   return(invisible(obj))
 }
 
-#autocorrelation with previous reaction time
 #' lambda: autocorrelation with previous timepoint.
 #' 
 #' Weight for similarity of RT_t and RT_t-1, ranging from 0-1. 
@@ -82,6 +81,39 @@ autocorrPrevRT <- function(min_value=0.0, max_value=1.0, init_value=0.3, cur_val
   
   if (min_value < 0.0) { stop("Autocorr prev RT (lambda) parameter cannot be negative") }
   if (max_value > 1.0) { stop("Autocorr prev RT (lambda) parameter cannot exceed 1.0") }
+  
+  obj <- initialize_par(obj, min_value, max_value, init_value, cur_value, par_scale, by) #check and initialize fields
+  return(invisible(obj))
+}
+
+#' stickyChoice: weight and decay parameters to scale effect of prior RTs on current RT
+#' 
+#' @param min_value Lower bound for stickyChoice parameter.
+#' @param max_value Upper bound for stickyChoice parameter.
+#' @param init_value Initial value for stickyChoice parameter.
+#' @param cur_value Current value for stickyChoice parameter.
+#' @param par_scale Expected parameter scale.
+#' @param by character vector defining one or more run-level fields over which this parameter varies.
+#' 
+#' @export
+stickyChoice <- function(min_value=c(weight=0.0, decay=0.0), max_value=c(weight=1.0, decay=1.0), 
+    init_value=c(weight=0.3, decay=0.1), cur_value=init_value, par_scale=c(weight=1e-1, decay=1e-1), by=NULL) {  
+
+  obj <- structure(
+      list(name = c("stickyWeight", "stickyDecay")),
+      class=c("p_stickyChoice", "param")
+  )
+  
+  lapply(list(min_value, max_value, init_value, cur_value, par_scale), function(v) {
+        if (is.null(names(v)) || length(v) != 2 || any(! c("weight", "decay") %in% names(v))) {
+          stop("For sticky choice, all parameter initialization values must be two-element vectors with names c(\"weight\", \"decay\")")
+        }
+      })
+  
+  if (min_value["weight"] < 0.0) { stop("Sticky weight prev RT (stickyWeight) parameter cannot be negative") }
+  if (max_value["weight"] > 1.0) { stop("Sticky weight prev RT (stickyWeight) parameter cannot exceed 1.0") }
+  if (min_value["decay"] < 0.0) { stop("Sticky decay prev RT (stickyDecay) parameter cannot be negative") }
+  if (max_value["decay"] > 1.0) { stop("Sticky decay prev RT (stickyDecay) parameter cannot exceed 1.0") }
   
   obj <- initialize_par(obj, min_value, max_value, init_value, cur_value, par_scale, by) #check and initialize fields
   return(invisible(obj))
@@ -181,10 +213,10 @@ meanSlowFast <- function(min_value=0, max_value=10000, init_value=300, cur_value
 
 #' epsilon: adapt to fast/slow responses in proportion to uncertainty about other dist
 #' 
-#' @param min_value Lower bound for rho parameter.
-#' @param max_value Upper bound for rho parameter.
-#' @param init_value Initial value for rho parameter.
-#' @param cur_value Current value for rho parameter.
+#' @param min_value Lower bound for epsilon parameter.
+#' @param max_value Upper bound for epsilon parameter.
+#' @param init_value Initial value for epsilon parameter.
+#' @param cur_value Current value for epsilon parameter.
 #' @param par_scale Expected parameter scale.
 #' @param by character vector defining one or more run-level fields over which this parameter varies.
 #' 
@@ -271,10 +303,13 @@ getRTUpdate.default <- function(obj, theta) {
 #' @keywords internal
 getTheta <- function(obj, condition) {
   if (is.null(obj$by)) {
-    obj$name[1L]
+    v <- obj$name
+    names(v) <- obj$name
   } else {
-    obj$name[which(obj$name == paste0(obj$base_name, "/",  paste(obj$by, condition[obj$by], sep=":", collapse="/")))]
+    v <- obj$name[sapply(obj$base_name, function(n) { which(obj$name == paste0(n, "/",  paste(obj$by, condition[obj$by], sep=":", collapse="/"))) }) ]
+    names(v) <- obj$base_name
   }
+  v
 }
 
 #' Compute reaction time contribution for K (baseline response speed)
@@ -293,8 +328,18 @@ getRTUpdate.p_meanRT <- function(obj, theta) {
 #' @param theta named vector of current values for parameters in model.
 #' @keywords internal
 getRTUpdate.p_autocorrPrevRT <- function(obj, theta) {
-  #theta[obj$name]*obj$w$RT_last
   theta[obj$theta_lookup]*obj$w$RT_last
+}
+
+#' Compute reaction time contribution for stickyChoice (weight and decay for influence of sticky choice function)
+#'  
+#' @param obj the parameter object to be used for prediction.
+#' @param theta named vector of current values for parameters in model.
+#' @keywords internal
+getRTUpdate.p_stickyChoice <- function(obj, theta) {
+  #compute current value of sticky function
+  obj$w$sticky <- obj$w$RT_last + theta[obj$theta_lookup["stickyDecay"]]*obj$w$sticky
+  theta[obj$theta_lookup["stickyWeight"]]*obj$w$sticky #rtContrib
 }
 
 #' Compute reaction time contribution for nu (adapt toward best reward)
@@ -393,6 +438,7 @@ getRTUpdate.p_nogo <- function(obj, theta) {
 #' 
 #' @keywords internal
 
+#updateBetaDists <- compiler::cmpfun(l_updateBetaDists)
 updateBetaDists=function(bfs) {
   #because explore and meandiff parameters may both be present in the model
   #need to check whether the beta distribution has already been updated on this trial
@@ -484,6 +530,7 @@ getRTUpdate.p_epsilonBeta=function(obj, theta) {
             }
             
             # reset if already explored in this direction last trial (see supplement of Frank et al 09)
+            # logVal <- tryCatch(if ((RT_last < RT_last2 && explore < 0) || (RT_last > RT_last2 && explore > 0)) { NULL }, error=function(e) { print(e); browser() })
             if ( (RT_last < RT_last2 && explore < 0) ||
                 (RT_last > RT_last2 && explore > 0) ) {
               explore <- 0
@@ -513,8 +560,12 @@ reset_workspace <- function(obj) { UseMethod("reset_workspace") }
 #' @param obj the parameter object whose workspace will be reset.   
 #' @method reset_workspace param
 #' @S3method reset_workspace param
-reset_workspace.param <- function(obj) { lapply(obj$name, function(f) { obj$w$pred_contrib[[f]] <- rep(NA_real_, obj$w$ntrials) } ) }
-#reset_workspace.param <- function(obj) { NULL }
+
+#no real advantage to allocating these in advance since RT contribution of parameters only need to be computed after parameter optimization 
+#N.B., should probably set pred_contrib name based on class name of param, not the lapply on the parameter name/names themselves
+#because a given param object can only contribute on RT prediction (even if a function of two parameters).
+#reset_workspace.param <- function(obj) { lapply(obj$name, function(f) { obj$w$pred_contrib[[f]] <- rep(NA_real_, obj$w$ntrials) } ) }
+reset_workspace.param <- function(obj) { NULL }
 
 #' reset workspace for go parameter
 #' 
@@ -541,6 +592,19 @@ reset_workspace.p_nogo <- function(obj) {
   obj$w$NoGo[1L] <- 0.0 #may want to override this later...
   NextMethod()
 }
+
+#' reset workspace for stickyChoice parameter
+#' 
+#' Reset the sticky choice function value
+#' 
+#' @param obj the parameter object whose workspace will be reset.
+#' @method reset_workspace p_stickyChoice
+#' @S3method reset_workspace p_stickyChoice
+reset_workspace.p_stickyChoice <- function(obj) {
+  obj$w$sticky <- 0
+  NextMethod()
+}
+
 
 #' reset workspace for goForGold parameter
 #' 
