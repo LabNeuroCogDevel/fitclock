@@ -99,6 +99,8 @@ clockdata_group <- setRefClass(
 #' 
 #' @importFrom ggplot2 ggplot
 #' @importFrom methods setRefClass
+#' @importFrom fmri fmri.stimulus
+#' @importFrom fmri fmri.design
 #' @export clockdata_subject
 #' @exportClass clockdata_subject
 clockdata_subject <- setRefClass(
@@ -229,6 +231,8 @@ clockdata_subject <- setRefClass(
 #'    }
 #' 
 #' @importFrom methods setRefClass
+#' @importFrom fmri fmri.stimulus
+#' @importFrom fmri fmri.design
 #' @export clock_fit
 #' @exportClass clock_fit
 clock_fit <- setRefClass(
@@ -252,10 +256,29 @@ clock_fit <- setRefClass(
         initialize=function(...) {
           callSuper(...) #default assignment of fields
         },
-        buildMRIDesignMatrix=function() {
+        build_fMRI_design_matrix=function(regressors=c("buttonPress", "p_autocorrPrevRT", "p_gold", "p_go", "p_nogo", "p_meanSlowFast", "p_epsilonBeta"),
+            durations=c("0", rep("rt", 6))) {
+          require(fmri)
+          if ("buttonPress" %in% regressors) {
+            browser()
+            press_time <- .self$clock_onset + .self$RTobs/1000
+            press_time.hrf <- apply(press_time, 1, function(run) { 
+                  fmri.stimulus(scans=320, times=run, durations=0, rt=1.0)
+                })
+          }
+          #drop button press
+          regressors <- regressors[-which(regressors=="buttonPress")]
+          
+          regMat <- lapply(regressors, function(r) {
+                reg.hrf <- lapply(1:length(.self$pred_contrib), function(run) {
+                      browser()
+                      vec <- .self$pred_contrib[[run]][r,]
+                      fmri.stimulus(scans=320, times=.self$clock_onset, durations=.self$RTobs/1000, rt=1.0)
+                    })
+              })
           
         }
-        )
+    )
 )
 
 
