@@ -151,6 +151,7 @@ clockdata_subject <- setRefClass(
             
             if ("clock_onset" %in% names (d)) { r$clock_onset <- d$clock_onset }
             if ("feedback_onset" %in% names (d)) { r$feedback_onset <- d$feedback_onset }
+            if ("iti_onset" %in% names (d)) { r$iti_onset <- d$iti_onset }
             
             .self$add_runs(r)
           }
@@ -231,8 +232,8 @@ clockdata_subject <- setRefClass(
 #'    }
 #' 
 #' @importFrom methods setRefClass
-#' @importFrom fmri fmri.stimulus
 #' @importFrom fmri fmri.design
+#' @importFrom Hmisc Lag
 #' @export clock_fit
 #' @exportClass clock_fit
 clock_fit <- setRefClass(
@@ -250,35 +251,171 @@ clock_fit <- setRefClass(
         opt_data="list", #list of results from optimizer
         pred_contrib="list",
         clock_onset="matrix",
-        feedback_onset="matrix"
+        feedback_onset="matrix",
+        iti_onset="matrix",
+        bfs_var_fast="matrix", #trialwise variance of beta distribution for fast responses
+        bfs_var_slow="matrix",
+        bfs_mean_fast="matrix",
+        bfs_mean_slow="matrix",
+        ev="matrix", #expected value
+        rpe="matrix" #reward prediction error
     ),
     methods=list(
         initialize=function(...) {
           callSuper(...) #default assignment of fields
         },
-        build_fMRI_design_matrix=function(regressors=c("buttonPress", "p_autocorrPrevRT", "p_gold", "p_go", "p_nogo", "p_meanSlowFast", "p_epsilonBeta"),
-            durations=c("0", rep("rt", 6))) {
-          require(fmri)
-          if ("buttonPress" %in% regressors) {
-            browser()
-            press_time <- .self$clock_onset + .self$RTobs/1000
-            press_time.hrf <- apply(press_time, 1, function(run) { 
-                  fmri.stimulus(scans=320, times=run, durations=0, rt=1.0)
-                })
-          }
-          #drop button press
-          regressors <- regressors[-which(regressors=="buttonPress")]
+        #extended from fmri package to support parametric regressor
+        fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1),
+            rt=3, times=NULL, mean=TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
           
-          regMat <- lapply(regressors, function(r) {
-                reg.hrf <- lapply(1:length(.self$pred_contrib), function(run) {
-                      browser()
-                      vec <- .self$pred_contrib[[run]][r,]
-                      fmri.stimulus(scans=320, times=.self$clock_onset, durations=.self$RTobs/1000, rt=1.0)
-                    })
+          mygamma <- function(x, a1, a2, b1, b2, c) {
+            d1 <- a1 * b1
+            d2 <- a2 * b2
+            c1 <- ( x/d1 )^a1
+            c2 <- c * ( x/d2 )^a2
+            res <- c1 * exp(-(x-d1)/b1) - c2 * exp(-(x-d2)/b2)
+            res
+          }
+          
+          if (is.null(times)) {
+            scale <- 1
+          } else {
+            #upsample time grid by a factor of 100 to get best estimate of hrf at each volume 
+            scale <- 100
+            onsets <- times/rt*scale
+            durations <- durations/rt*scale
+            rt <- rt/scale
+            scans <- scans*scale
+          }
+          numberofonsets <- length(onsets)
+          
+          if (length(durations) == 1) {
+            durations <- rep(durations,numberofonsets)
+          } else if (length(durations) != numberofonsets)  {
+            stop("Length of durations vector does not match the number of onsets!")
+          }
+          
+          if (length(values) == 1) {
+            #use the same regressor height (usually 1.0) for all onsets
+            values <- rep(values, numberofonsets)
+          } else if (length(values) != numberofonsets) {
+            stop("Length of values vector does not match the number of onsets!")
+          }
+          
+          stimulus <- rep(0, scans)
+          
+          for (i in 1:numberofonsets) {
+            for (j in onsets[i]:(onsets[i]+durations[i]-1)) {
+              stimulus[j] <- values[i]
+            }
+          }
+          stimulus <- c(rep(0,20*scale),stimulus,rep(0,20*scale))
+          
+          #  zero pad stimulus vector to avoid bounding/edge effects in convolve
+          hrf <- convolve(stimulus,mygamma(((40*scale)+scans):1, a1, a2, b1/rt, b2/rt, cc))/scale
+          hrf <- hrf[-(1:(20*scale))][1:scans]
+          hrf <- hrf[unique((scale:scans)%/%scale)*scale]
+          
+          dim(hrf) <- c(scans/scale,1)
+          
+          if (mean) {
+            hrf - mean(hrf)
+          } else {
+            hrf
+          }
+        },
+        build_design_matrix=function(
+            regressors=NULL,
+            event_onsets=NULL,
+            durations=NULL,
+            convolve=TRUE) {
+          
+#          if (is.null(regressors)) {
+#            regressors <- c("buttonPress", dimnames(f$pred_contrib[[1L]])[[1L]]) #use all param names from first run
+#          }
+          
+          browser()
+          if (length(unique(sapply(list(regressors, event_onsets, durations), length))) != 1L) { stop("regressors, event_onsets, and durations must have the same length") }
+          #require(fmri)
+          
+          #determine the last fMRI volume to be analyzed
+          last_fmri_volume <- apply(.self$iti_onset, 1, function(itis) {
+                ceiling(itis[length(itis)] + 12.0 ) #fixed 12-second ITI after every run
               })
           
+#          if ("buttonPress" %in% regressors) {
+#            #browser()
+#            press_time <- .self$clock_onset + .self$RTobs/1000
+#            press_time.hrf <- lapply(1:nrow(press_time), function(run) { 
+#                  fmri.stimulus(scans=last_fmri_volume[run], times=press_time[run,], durations=0, rt=1.0) #hard-coded 1.0s TR for now
+#                })
+#          }
+#          #drop button press
+#          regressors <- regressors[-which(regressors=="buttonPress")]
+          
+          designCols <- c()
+          
+          #build design matrix in the order specified
+          dmat <- sapply(1:length(regressors), function(r) {
+                #Note: all of the regressor computations here should result in nruns x ntrials matrices
+                #regressor values
+                if (regressors[r]=="rel_uncertainty") {
+                  reg <- abs(bfs_var_fast - bfs_var_slow)
+                } else if (regressors[r]=="mean_uncertainty") {
+                  reg <- abs(bfs_var_fast + bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
+                } else if (regressors[r]=="button_press") {
+                  reg <- matrix(1.0, dim(RTobs)) #standard task indicator regressor
+                } else if (regressors[r]=="rpe_pos") {
+                  reg <- apply(rpe, c(1,2), function(x) { if (x > 0) x else 0 })  
+                } else if (regressors[r]=="rep_neg") {
+                  reg <- apply(rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
+                }
+                
+                #replace missing values with 0 for clarity in convolution
+                reg[which(is.na(reg))] <- 0
+                
+                #determine onset times for events
+                if (event_onsets[r] == "clock_onset") {
+                  times <- clock_onset
+                } else if (event_onsets[r] == "feedback_onset") {
+                  times <- feedback_onset
+                } else if (event_onsets[r] == "iti_onset") {
+                  times <- iti_onset
+                } else if (event_onsets[r] == "rt") {
+                  times <- clock_onset + RTobs/1000
+                }
+                
+                if (durations[r] == "rt") {
+                  durations <- RTobs/1000
+                } else if (durations[r] == "feedback_duration") {
+                  durations <- iti_onset - feedback_onset
+                } else if (durations[r] == "iti_duration") {
+                  #need to lag clock matrix: iti duration is: clock_onset(t+1) - iti_onset(t)
+                  #lag_clock <- apply(clock_onset)
+                } else if (!is.na(suppressWarnings(as.numeric(durations[r])))) {
+                  #user-specified scalar duration (not currently supporting a user-specified per-regressor vector of durations) 
+                  durations <- matrix(as.numeric(durations[r]), dim(RTobs))
+                }
+                
+                conv.reg <- lapply(1:nrow(reg), function(run) { 
+                      fmri.stimulus(scans=last_fmri_volume[run], values=reg[run,], times=times[run,], durations=durations[run,], rt=1.0) #hard-coded 1.0s TR for now
+                    })
+                
+                conv.reg
+              })
+              
+              #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
+              #bind by run
+              runMats <- sapply(1:dim(dmat)[1L], function(r) {
+                    m <- do.call(cbind, dmat[r,])
+                    dm <- fmri.design(m, order=2)
+                    dm
+                  })
+              
+              browser()
         }
     )
+
 )
 
 
@@ -330,7 +467,8 @@ clockdata_run <- setRefClass(
         by_lookup="character", #at fit-time, alg copies in a named character vector that is the union of all relevant fields for run definition (usually rew_function + run_condition) 
         orig_data_frame="data.frame", #optional data.frame from original experiment run containing full saved data (in case there are additional variables of interest)
         clock_onset="numeric", #vector of clock stimulus onset times (in seconds)
-        feedback_onset="numeric" #vector of feedback stimulus onset times (in seconds)
+        feedback_onset="numeric", #vector of feedback stimulus onset times (in seconds)
+        iti_onset="numeric" #vector of fixation iti onset times (in seconds)
     ),
     methods=list(
         initialize=function(run_number=NA_integer_, RTobs=NA_integer_, Reward=NA_integer_, global_trial_number=NA_integer_,

@@ -19,7 +19,8 @@
 #'      \item{\code{clock_data}:}{ Clock data to be fit. Should be of class clockdata_group, clockdata_subject, or clockdata_run. DO NOT ASSIGN YOURSELF. }
 #'      \item{\code{use_global_avg_RT}:}{ Whether to use the global reaction time across all runs within subject as reference for scale and K. }
 #'      \item{\code{global_avg_RT}:}{ Average reaction time across all runs within subject. }
-#'      \item{\code{all_by}:}{ #character vector that is the union of all run-level fields that define vary-by-run parameters }
+#'      \item{\code{all_by}:}{ character vector that is the union of all run-level fields that define vary-by-run parameters }
+#'      \item{\code{clock_fit}:}{ clock_fit object storing all information about result of algorithm fit (e.g., expected value) }
 #'    }
 #' 
 #' @section Methods:
@@ -55,7 +56,8 @@ clock_model <- setRefClass(
         use_global_avg_RT="logical",
         fit_RT_diffs="logical", #whether to difference RTs prior to fit (e.g., Badre)
         global_avg_RT="numeric",
-        all_by="character" #character vector that is the union of all run-level fields defining vary-by-run parameters
+        all_by="character", #character vector that is the union of all run-level fields defining vary-by-run parameters
+        fit_result="clock_fit" #results object for fitted data (also returned by $fit)
     ),
     methods=list(
         initialize=function(clock_data=NULL, ...) {
@@ -259,12 +261,12 @@ clock_model <- setRefClass(
               elapsed_time <- system.time(optResult <- optim(par=initialValues, fn=.self$predict, method=method,
                       lower=lower, upper=upper,
                       control=list(parscale=params_par_scale()),
-                      updateFields=FALSE, trackHistory=FALSE))
+                      updateFields=FALSE, track_optimization_history=FALSE))
             } else if (optimizer=="nlminb") {
               #this is the most sensible, and corresponds to optim above (and is somewhat faster)
               elapsed_time <- system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, 
                       lower=lower, upper=upper, scale=1/params_par_scale(),
-                      updateFields=FALSE, trackHistory=FALSE)) #I think no tracking of history to avoid collisions in shared objects
+                      updateFields=FALSE, track_optimization_history=FALSE)) #I think no tracking of history to avoid collisions in shared objects
             }
             
             if (profile) {
@@ -340,17 +342,17 @@ clock_model <- setRefClass(
           
           #this is roughly what is suggested in the PORT documentation (1/max scaling). But it's slower than 1/magnitude above.
           #system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, lower=lower, upper=upper, scale=1/upper, #scale=c(1, 100, 100, 100, 100),
-          #        updateFields=FALSE, trackHistory=TRUE))
+          #        updateFields=FALSE, track_optimization_history=TRUE))
           
           #even though this is faster, I have no idea why one would use a scale of 100 for all...
           #system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, lower=lower, upper=upper, scale=100L, #scale=c(1, 100, 100, 100, 100),
-          #        updateFields=FALSE, trackHistory=TRUE))
+          #        updateFields=FALSE, track_optimization_history=TRUE))
           
           #system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, lower=lower, upper=upper, scale=10L, #scale=c(1, 100, 100, 100, 100),
-          #        updateFields=FALSE, trackHistory=TRUE))
+          #        updateFields=FALSE, track_optimization_history=TRUE))
           
           #system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, lower=lower, upper=upper,
-          #        updateFields=FALSE, trackHistory=TRUE))
+          #        updateFields=FALSE, track_optimization_history=TRUE))
           
           #scalecheck()
           #optimx does not appear to be suited to pass through scale to nlminb...
@@ -361,7 +363,7 @@ clock_model <- setRefClass(
           #            usenumDeriv=FALSE, 
           #            all.methods=FALSE
           #            ),
-          #        updateFields=FALSE, trackHistory=TRUE))
+          #        updateFields=FALSE, track_optimization_history=TRUE))
           
           #time <- system.time(p <- optimx(par=initialValues, fn=.self$predict, lower=lower, upper=upper, method=method, control=list(parscale=c(1e3, 1e0, 1e-1, 1e-1))))
           #time <- system.time(p <- optimx(par=initialValues, fn=.self$predictNoLookup, lower=lower, upper=upper, method=method, updateFields=FALSE))
@@ -372,7 +374,7 @@ clock_model <- setRefClass(
             params <<- lapply(params, function(p) { p$cur_value <- fit_output$opt_data$par[p$name]; return(p) }) #set current parameter values based on optimization S3
             
             #compute trialwise predictions with optimized parameters
-            .self$predict(updateFields=TRUE, trackHistory=FALSE)
+            .self$predict(updateFields=TRUE, track_optimization_history=FALSE)
             
             #set SSE for fit
             if (optimizer=="nlminb") { 
@@ -381,32 +383,49 @@ clock_model <- setRefClass(
               SSE <<- fit_output$opt_data$value
             }
             
-            ##only works for subject and run fits, not group
+            ## create a fit object that stores parameter information, trialwise contribution of parameters to prediction,
+            ## AIC, SSE
+            
+            ##at the moment, only works for subject and run fits, not group
             if (class(clock_data) == "clockdata_subject") {
               ntrials <- sum(unlist(lapply(clock_data$runs, function(r) { r$w$ntrials } )))
               RTobs <- do.call(rbind, lapply(clock_data$runs, function(r) { r$RTobs }))
               RTpred <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$RTpred }))
               Reward <- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))
+              bfs_var_fast <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_fast })) #trialwise estimate of uncertainty re: fast responses
+              bfs_var_slow <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_slow })) #trialwise estimate of uncertainty re: slow responses
+              bfs_mean_fast <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_fast })) #trialwise estimate of mean value for fast responses
+              bfs_mean_slow <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_slow })) #trialwise estimate of mean value for slow responses
+              ev <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$V })) #expected value
+              rpe <- Reward - ev #better or worse than expected?
               #get a list prediction contributions of each parameter per run: each element is a params x trials matrix 
               pred_contrib <- lapply(clock_data$runs, function(r) { do.call(rbind, r$w$pred_contrib) } )
-              clock_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$clock_onset) == 0 ) NA else r$clock_onset }))
-              feedback_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$feedback_onset) == 0 ) NA else r$feedback_onset }))
               #flatten this? 
               #arr_pred_contrib <- do.call(abind, list(along=0, pred_contrib))
+              clock_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$clock_onset) == 0 ) NA else r$clock_onset }))
+              feedback_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$feedback_onset) == 0 ) NA else r$feedback_onset }))
+              iti_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$iti_onset) == 0 ) NA else r$iti_onset }))
               
             } else if (class(clock_data) == "clockdata_run") {
               ntrials <- clock_data$w$ntrials
-              RTobs <- clock_data$RTobs
-              RTpred <- clock_data$w$RTpred
-              Reward <- clock_data$Reward
+              RTobs <- matrix(clock_data$RTobs, nrow=1)
+              RTpred <- matrix(clock_data$w$RTpred, nrow=1)
+              Reward <- matrix(clock_data$Reward, nrow=1)
               pred_contrib <- list(do.call(rbind, clock_data$w$pred_contrib))
               clock_onset <- if (length(clock_data$clock_onset) == 0) NA else clock_data$clock_onset
               feedback_onset <- if (length(clock_data$feedback_onset) == 0) NA else clock_data$feedback_onset
+              iti_onset <- if (length(clock_data$iti_onset) == 0) NA else clock_data$iti_onset
+              #these need to be stored as row vectors to be compatible with expected matrix data type in clock_fit
+              bfs_var_fast <- matrix(clock_data$w$betaFastSlow$var_fast, nrow=1) #trialwise estimate of uncertainty re: fast responses
+              bfs_var_slow <- matrix(clock_data$w$betaFastSlow$var_slow, nrow=1) #trialwise estimate of uncertainty re: slow responses
+              bfs_mean_fast <- matrix(clock_data$w$betaFastSlow$mean_fast, nrow=1) #trialwise estimate of mean value for fast responses
+              bfs_mean_slow <- matrix(clock_data$w$betaFastSlow$mean_slow, nrow=1) #trialwise estimate of mean value for slow responses
+              ev <- matrix(clock_data$w$V, nrow=1) #expected value
+              rpe <- matrix(Reward - ev, nrow=1) #better or worse than expected?
             }
             
             nparams <- length(fit_output$opt_data$par) #number of free parameters
             
-            AIC <<- ntrials*(log(2*pi*(SSE/ntrials))+1) + 2*nparams
             
             fit_output$RTobs <- RTobs
             fit_output$RTpred <- RTpred
@@ -414,8 +433,16 @@ clock_model <- setRefClass(
             fit_output$pred_contrib <- pred_contrib
             fit_output$clock_onset <- clock_onset
             fit_output$feedback_onset <- feedback_onset
-            fit_output$AIC <- AIC
+            fit_output$iti_onset <- iti_onset
+            fit_output$SSE <- SSE
+            fit_output$AIC <- ntrials*(log(2*pi*(SSE/ntrials))+1) + 2*nparams
             fit_output$theta <- as.matrix(list_params())
+            fit_output$bfs_var_fast <- bfs_var_fast
+            fit_output$bfs_var_slow <- bfs_var_slow
+            fit_output$bfs_mean_fast <- bfs_mean_fast
+            fit_output$bfs_mean_slow <- bfs_mean_slow
+            fit_output$ev <- ev
+            fit_output$rpe <- rpe
           } else {
             warning("Optimization failed.")
             fit_output <- NULL
@@ -425,7 +452,7 @@ clock_model <- setRefClass(
           
         },
         
-        predict=function(theta=params_current(), updateFields=FALSE, trackHistory=FALSE) {
+        predict=function(theta=params_current(), updateFields=FALSE, track_optimization_history=FALSE) {
           ##TODO: clock_model object shoud allow for some sort of symbolic specification of how
           #values from prior runs are carried forward.
           #this is an clock_model-level decision, not subject, run, parameter, etc.
@@ -435,7 +462,7 @@ clock_model <- setRefClass(
           totalSSE <- 0
           
           #track value of parameters over the course of optimization
-          if (trackHistory) {
+          if (track_optimization_history) {
             params <<- lapply(params, function(p) { p$value_history <- c(p$value_history, theta[p$name]); return(p) }) #set current parameter values based on optimization S3 version
             #lapply(params, function(p) { p$value_history <- c(p$value_history, theta[p$name]) }) #set current parameter values based on optimization REFCLASS VERSION
           }

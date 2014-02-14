@@ -483,12 +483,12 @@ updateBetaDists=function(bfs) {
             }
             
             # compute mode and variances of beta distribution
-            var_fast    <- alpha_fast * beta_fast / ( (alpha_fast + beta_fast)^2 * (alpha_fast + beta_fast + 1) )
-            var_slow    <- alpha_slow*beta_slow/( (alpha_slow + beta_slow)^2 * (alpha_slow + beta_slow + 1) )
-            #mode_slow  <- (alpha_slow - 1) / (alpha_slow + beta_slow - 2) #not used at present, omit for optimization speed
-            #mode_fast  <- (alpha_fast - 1) / (alpha_fast + beta_fast - 2) 
-            mean_slow   <- alpha_slow / (alpha_slow + beta_slow)
-            mean_fast   <- alpha_fast / (alpha_fast + beta_fast)
+            var_fast[lastUpdateTrial]    <- alpha_fast * beta_fast / ( (alpha_fast + beta_fast)^2 * (alpha_fast + beta_fast + 1) )
+            var_slow[lastUpdateTrial]    <- alpha_slow*beta_slow/( (alpha_slow + beta_slow)^2 * (alpha_slow + beta_slow + 1) )
+            #mode_slow[lastUpdateTrial]  <- (alpha_slow - 1) / (alpha_slow + beta_slow - 2) #not used at present, omit for optimization speed
+            #mode_fast[lastUpdateTrial]  <- (alpha_fast - 1) / (alpha_fast + beta_fast - 2) 
+            mean_slow[lastUpdateTrial]   <- alpha_slow / (alpha_slow + beta_slow)
+            mean_fast[lastUpdateTrial]   <- alpha_fast / (alpha_fast + beta_fast)
             
             local_RT <- local_RT_last + local_RT_learning_rate * (w$RT_last - local_RT_last) # update estimate of recent RTs by 10% (0.1) of deviation of this trial's RT from the local average      
           }),
@@ -503,7 +503,7 @@ updateBetaDists=function(bfs) {
 #' @keywords internal
 getRTUpdate.p_meanSlowFast=function(obj, theta) {
   updateBetaDists(obj$w$betaFastSlow) #update fast/slow beta dists
-  theta[obj$theta_lookup] * with(obj$w$betaFastSlow, mean_slow - mean_fast) #rtContrib
+  theta[obj$theta_lookup] * with(obj$w$betaFastSlow, mean_slow[lastUpdateTrial] - mean_fast[lastUpdateTrial]) #rtContrib
 }
 
 #' Compute reaction time contribution for epsilon (explore)
@@ -524,9 +524,9 @@ getRTUpdate.p_epsilonBeta=function(obj, theta) {
       quote({                
             if (RT_last > betaFastSlow$local_RT_last) {
               #explore parameter scales the difference in SDs between the fast and slow beta dists
-              explore <- -1.0*cur_value * (sqrt(betaFastSlow$var_fast) - sqrt(betaFastSlow$var_slow))  # speed up if more uncertain about fast responses
+              explore <- -1.0*cur_value * (sqrt(betaFastSlow$var_fast[cur_trial]) - sqrt(betaFastSlow$var_slow[cur_trial]))  # speed up if more uncertain about fast responses
             } else {
-              explore <- +1.0*cur_value * (sqrt(betaFastSlow$var_slow) - sqrt(betaFastSlow$var_fast)) #slow down if more uncertain about slow responses
+              explore <- +1.0*cur_value * (sqrt(betaFastSlow$var_slow[cur_trial]) - sqrt(betaFastSlow$var_fast[cur_trial])) #slow down if more uncertain about slow responses
             }
             
             # reset if already explored in this direction last trial (see supplement of Frank et al 09)
