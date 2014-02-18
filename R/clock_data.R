@@ -328,14 +328,18 @@ clock_fit <- setRefClass(
             regressors=NULL,
             event_onsets=NULL,
             durations=NULL,
-            convolve=TRUE) {
+            convolve=TRUE,
+            checkCollinearity=TRUE) {
           
-#          if (is.null(regressors)) {
-#            regressors <- c("buttonPress", dimnames(f$pred_contrib[[1L]])[[1L]]) #use all param names from first run
-#          }
+          if (is.null(regressors)) {
+            stop("regressor names, event onsets, and event durations must be specified.")
+          }
           
           browser()
-          if (length(unique(sapply(list(regressors, event_onsets, durations), length))) != 1L) { stop("regressors, event_onsets, and durations must have the same length") }
+          if (length(unique(sapply(list(regressors, event_onsets, durations), length))) != 1L) { 
+            stop("regressors, event_onsets, and durations must have the same length") 
+          }
+          
           #require(fmri)
           
           #determine the last fMRI volume to be analyzed
@@ -343,32 +347,24 @@ clock_fit <- setRefClass(
                 ceiling(itis[length(itis)] + 12.0 ) #fixed 12-second ITI after every run
               })
           
-#          if ("buttonPress" %in% regressors) {
-#            #browser()
-#            press_time <- .self$clock_onset + .self$RTobs/1000
-#            press_time.hrf <- lapply(1:nrow(press_time), function(run) { 
-#                  fmri.stimulus(scans=last_fmri_volume[run], times=press_time[run,], durations=0, rt=1.0) #hard-coded 1.0s TR for now
-#                })
-#          }
-#          #drop button press
-#          regressors <- regressors[-which(regressors=="buttonPress")]
-          
-          designCols <- c()
-          
           #build design matrix in the order specified
+          #dmat 
           dmat <- sapply(1:length(regressors), function(r) {
                 #Note: all of the regressor computations here should result in nruns x ntrials matrices
                 #regressor values
-                if (regressors[r]=="rel_uncertainty") {
+                if (regressors[r] == "rel_uncertainty") {
+                  #trialwise relative uncertainty about fast versus slow responses: subtract variances 
                   reg <- abs(bfs_var_fast - bfs_var_slow)
-                } else if (regressors[r]=="mean_uncertainty") {
+                } else if (regressors[r] == "mean_uncertainty") {
                   reg <- abs(bfs_var_fast + bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
-                } else if (regressors[r]=="button_press") {
+                } else if (regressors[r] == "button_press") {
                   reg <- matrix(1.0, dim(RTobs)) #standard task indicator regressor
-                } else if (regressors[r]=="rpe_pos") {
-                  reg <- apply(rpe, c(1,2), function(x) { if (x > 0) x else 0 })  
-                } else if (regressors[r]=="rep_neg") {
+                } else if (regressors[r] == "rpe_pos") {
+                  reg <- apply(rpe, c(1,2), function(x) { if (x > 0) x else 0 }) #positive prediction error
+                } else if (regressors[r] == "rpe_neg") {
                   reg <- apply(rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
+                } else if (regressors[r] == "rt") {
+                  reg <- RTobs #parametric regressor for overall reaction time
                 }
                 
                 #replace missing values with 0 for clarity in convolution
@@ -397,22 +393,62 @@ clock_fit <- setRefClass(
                   durations <- matrix(as.numeric(durations[r]), dim(RTobs))
                 }
                 
-                conv.reg <- lapply(1:nrow(reg), function(run) { 
-                      fmri.stimulus(scans=last_fmri_volume[run], values=reg[run,], times=times[run,], durations=durations[run,], rt=1.0) #hard-coded 1.0s TR for now
-                    })
+                if (convolve) {
+                  #for each run convolve the regressor with HRF
+                  output <- lapply(1:nrow(reg), function(run) { 
+                        fmri.stimulus(scans=last_fmri_volume[run], values=reg[run,], times=times[run,], durations=durations[run,], rt=1.0) #hard-coded 1.0s TR for now
+                      })
+                } else {
+                  #fsl-style 3-column format is onset_time duration value
+                  output <- lapply(1:nrow(reg), function(run) {
+                        cbind(onset=times[run,], duration=durations[run,], value=reg[run,])
+                      })
+                }
                 
-                conv.reg
+                names(output) <- paste0("run", 1:nrow(reg))
+                
+                return(output)
               })
-              
-              #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
-              #bind by run
-              runMats <- sapply(1:dim(dmat)[1L], function(r) {
-                    m <- do.call(cbind, dmat[r,])
-                    dm <- fmri.design(m, order=2)
-                    dm
-                  })
-              
-              browser()
+          
+          dimnames(dmat)[[2L]] <- regressors
+          
+          #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
+          
+          if (checkCollinearity) {
+            collinearityDiag <- apply(dmat, 1, function(run) {
+                  if (convolve) {
+                    #check collinearity of HRF-convolved regressors
+                    cmat <- do.call(data.frame, run)
+                  } else {
+                    #check correlations among regressors for trial-wise estimates
+                    cmat <- do.call(data.frame, lapply(run, function(regressor) {
+                              regressor[,"value"]
+                            }))
+                  }
+                  
+                  corvals <- cor(cmat, use="pairwise.complete.obs")
+                  vifMat <- data.frame(cbind(const=rep(1,nrow(cmat)), cmat))
+                  vifForm <- as.formula(paste("const ~ 1 +", paste(dimnames(cmat)[[2L]], collapse=" + ")))
+                  
+                  varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
+                  list(r=corvals, vif=varInfl)
+                })
+            
+          }
+          
+          #bind by run
+#          if (convolve) {
+#            runMats <- sapply(1:dim(dmat)[1L], function(r) {
+#                  m <- do.call(cbind, dmat[r,])
+#                })
+#            
+##            dm <- fmri.design(m, order=2)
+##            dm
+#            
+#          }
+          
+          return(list(design=dmat, collinDiag=collinDiag)
+          
         }
     )
 

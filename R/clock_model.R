@@ -50,8 +50,6 @@ clock_model <- setRefClass(
         #updateEquation="expression",
         params="list",
         noiseWt="numeric",
-        SSE="numeric",
-        AIC="numeric",
         clock_data="ANY", #allow this to be dataset, subject, or run,
         use_global_avg_RT="logical",
         fit_RT_diffs="logical", #whether to difference RTs prior to fit (e.g., Badre)
@@ -378,9 +376,9 @@ clock_model <- setRefClass(
             
             #set SSE for fit
             if (optimizer=="nlminb") { 
-              SSE <<- fit_output$opt_data$objective
+              SSE <- fit_output$opt_data$objective
             } else if (optimizer=="optim") {
-              SSE <<- fit_output$opt_data$value
+              SSE <- fit_output$opt_data$value
             }
             
             ## create a fit object that stores parameter information, trialwise contribution of parameters to prediction,
