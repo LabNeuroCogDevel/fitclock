@@ -329,9 +329,8 @@ clock_fit <- setRefClass(
             regressors=NULL,
             event_onsets=NULL,
             durations=NULL,
-            convolve=TRUE,
             checkCollinearity=TRUE,
-            baselineCoefOrder=-1L) {
+            baselineCoefOrder=-1L, plot=TRUE) {
           
           if (is.null(regressors)) {
             stop("regressor names, event onsets, and event durations must be specified.")
@@ -349,7 +348,6 @@ clock_fit <- setRefClass(
               })
           
           #build design matrix in the order specified
-          #dmat 
           dmat <- sapply(1:length(regressors), function(r) {
                 #Note: all of the regressor computations here should result in nruns x ntrials matrices
                 #regressor values
@@ -410,18 +408,15 @@ clock_fit <- setRefClass(
           #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
           
           #create an HRF-convolved version of the list
-          if (convolve) {
-            dmat.convolve <- lapply(1:dim(dmat)[1L], function(run) {
-                  run.convolve <- lapply(dmat[run,], function(reg) {
-                        fmri.stimulus(scans=last_fmri_volume[run], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now      
-                      })
-                  browser()
-                  do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
-                })
-            
-            #dmat.convolve should now be a 1-d runs list where each element is a data.frame of convolved regressors.
-            
-          } else { dmat.convolve <- list() }
+          dmat.convolve <- lapply(1:dim(dmat)[1L], function(run) {
+                run.convolve <- lapply(dmat[run,], function(reg) {
+                      fmri.stimulus(scans=last_fmri_volume[run], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now      
+                    })
+                do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
+              })
+          
+          #dmat.convolve should now be a 1-d runs list where each element is a data.frame of convolved regressors.
+          names(dmat.convolve) <- paste0("run", 1:length(dmat.convolve))
           
           if (checkCollinearity) {
             collinearityDiag.raw <- apply(dmat, 1, function(run) {
@@ -438,43 +433,28 @@ clock_fit <- setRefClass(
                   list(r=corvals, vif=varInfl)
                 })
             
-            if (length(dmat.convolve) > 0L) {
-              collinearityDiag.convolve <- apply(dmat.convolve, 1, function(run) {                    
-                    corvals <- cor(run, use="pairwise.complete.obs")
-                    vifMat <- data.frame(cbind(const=rep(1,nrow(cmat)), run)) #add dummy constant for vif 
-                    vifForm <- as.formula(paste("const ~ 1 +", paste(dimnames(cmat)[[2L]], collapse=" + ")))
-                    
-                    varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
-                    list(r=corvals, vif=varInfl)
-                  })
-            }
-  
-                
-                if (convolve) {
-                  #check collinearity of HRF-convolved regressors
-                  cmat <- do.call(data.frame, run)
-                } else {
+            collinearityDiag.convolve <- lapply(dmat.convolve, function(run) { #apply(dmat.convolve, 1, function(run) {                    
+                  corvals <- cor(run, use="pairwise.complete.obs")
+                  vifMat <- data.frame(cbind(const=rep(1,nrow(run)), run)) #add dummy constant for vif 
+                  vifForm <- as.formula(paste("const ~ 1 +", paste(names(run), collapse=" + ")))
                   
-                
+                  varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
+                  list(r=corvals, vif=varInfl)
+                })
           }
-          
-          browser()
-          
-          #bind by run
-          if (convolve) {
-            dmat <- sapply(1:dim(dmat)[1L], function(r) {
-                  do.call(cbind, dmat[r,])
+           
+          #add baseline terms to convolved design matrices
+          if (baselineCoefOrder > -1L) {
+            dmat.convolve <- lapply(dmat.convolve, function(r) {
+                  n <- names(r)
+                  d <- data.frame(fmri.design(r, order=2))
+                  names(d) <- c(n, paste0("base", 0:baselineCoefOrder))
+                  d
                 })
             
-            #add intercept, linear, and quadratic terms to design matrices
-            if (baselineCoefOrder > -1L) {
-              dm <- lapply(dmat, function(r) { 
-                    fmri.design(r, order=2)
-                  })
-            }
           }
           
-          return(list(design=dmat, collinDiag=collinDiag))
+          return(list(design=dmat, design.convolve=dmat.convolve, collin.raw=collinearityDiag.raw, collin.convolve=collinearityDiag.convolve))
           
         }
     )
