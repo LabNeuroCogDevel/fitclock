@@ -9,7 +9,7 @@ Laboratory for Neurocognitive Development, University of
 Pittsburgh
 }
 \usage{
-clocksubject_1000
+data(clocksubject_1000)
 }
 \description{
 This dataset is an example of multi-run single subject data
@@ -18,4 +18,5 @@ from the clock task.
 \author{
 Michael Hallquist, 2013-01-27
 }
+\keyword{datasets}
 

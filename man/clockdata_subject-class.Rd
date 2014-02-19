@@ -3,14 +3,14 @@
 \alias{clockdata_subject-class}
 \title{dataset object for subject-level data (multiple runs within a single subject)}
 \description{
-If the \code{csv_file} field is passed at instantiation,
+If the \code{dataset} field is passed at instantiation,
 data will be imported from the file specified.
 }
 \section{Fields}{
   \describe{ \item{\code{subject_ID}:}{ unique identifier
   string for subject. } \item{\code{runs}:}{ \code{list} of
   clockdata_run objects defining the subject. }
-  \item{\code{csv_file}:}{ comma-separated file containing
+  \item{\code{dataset}:}{ comma-separated file containing
   behavior for subject (one or more runs, each with many
   trials) } }
 }

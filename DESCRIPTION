@@ -17,4 +17,7 @@ Description: Object-oriented implementation of the time clock algorithm, a
 License: GPL
 Depends:
     methods,
-    ggplot2
+    ggplot2,
+    fmri,
+    car,
+    Hmisc

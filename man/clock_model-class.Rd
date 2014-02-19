@@ -39,8 +39,11 @@ specified at initialization.
   reference for scale and K. }
   \item{\code{global_avg_RT}:}{ Average reaction time
   across all runs within subject. } \item{\code{all_by}:}{
-  #character vector that is the union of all run-level
-  fields that define vary-by-run parameters } }
+  character vector that is the union of all run-level
+  fields that define vary-by-run parameters }
+  \item{\code{clock_fit}:}{ clock_fit object storing all
+  information about result of algorithm fit (e.g., expected
+  value) } }
 }
 
 \section{Methods}{
@@ -51,6 +54,10 @@ specified at initialization.
   profile=TRUE)}:}{ Fit \code{clock_data} using the list of
   \code{params}. Data to fit can be set at call to
   \code{$fit()} using the \code{toFit} parameter. }
+  \item{\code{incremental_fit=function(toFit=NULL,
+  plot=TRUE, njobs=1L)}:}{ Based on the \code{params} list,
+  test model subsets building from 1:p parameters. Useful
+  for checking AICs to verify utility of each parameter. }
   \item{\code{list_params()}:}{ Returns a data.frame
   describing the parameters, current values, and bounds of
   this model. } \item{\code{params_current()}:}{ Named
@@ -72,5 +79,25 @@ specified at initialization.
   field. }
 
   }
+}
+\examples{
+\dontrun {
+exSubj <- clockdata_subject(subject_ID="008", dataset=data("clocksubject_fMRI_008jh"))
+
+exModel <- clock_model()
+exModel$add_params(
+   meanRT(max_value=4000),
+   autocorrPrevRT(),
+   goForGold(),
+   go(),
+   noGo(),
+   meanSlowFast(),
+   exploreBeta()
+)
+
+exModel$set_data(exSubj)
+incrFit <- exModel$incremental_fit(njobs=6)
+fit <- exModel$fit(random_starts=5)
+}
 }
 

@@ -26,7 +26,8 @@
 #' @section Methods:
 #'    \describe{
 #'      \item{\code{add_params(...)}:}{ Method to add parameter objects to prediction equation. Should be a list of params or a single param. }
-#'      \item{\code{fit(toFit=NULL, random_starts=NULL, profile=TRUE)}:}{ Fit \code{clock_data} using the list of \code{params}. Data to fit can be set at call to \code{$fit()} using the \code{toFit} parameter. } 
+#'      \item{\code{fit(toFit=NULL, random_starts=NULL, profile=TRUE)}:}{ Fit \code{clock_data} using the list of \code{params}. Data to fit can be set at call to \code{$fit()} using the \code{toFit} parameter. }
+#'      \item{\code{incremental_fit=function(toFit=NULL, plot=TRUE, njobs=1L)}:}{ Based on the \code{params} list, test model subsets building from 1:p parameters. Useful for checking AICs to verify utility of each parameter. } 
 #'      \item{\code{list_params()}:}{ Returns a data.frame describing the parameters, current values, and bounds of this model. }
 #'      \item{\code{params_current()}:}{ Named vector of current values for all parameters. }
 #'      \item{\code{params_minimum()}:}{ Named vector of lower bounds for all parameters. }
@@ -38,7 +39,27 @@
 #' 
 #'    }
 #'
+#' @examples
+#' \dontrun {
+#' exSubj <- clockdata_subject(subject_ID="008", dataset=data("clocksubject_fMRI_008jh"))
+#' 
+#' exModel <- clock_model()
+#' exModel$add_params(
+#'    meanRT(max_value=4000),
+#'    autocorrPrevRT(),
+#'    goForGold(),
+#'    go(),
+#'    noGo(),
+#'    meanSlowFast(),
+#'    exploreBeta()
+#' )
+#'
+#' exModel$set_data(exSubj)
+#' incrFit <- exModel$incremental_fit(njobs=6)
+#' fit <- exModel$fit(random_starts=5)
+#' }
 #' @importFrom methods setRefClass
+#' @importFrom ggplot2 ggplot
 #' @export clock_model
 #' @exportClass clock_model
 
@@ -68,7 +89,7 @@ clock_model <- setRefClass(
           if (!is.null(clock_data)) { set_data(clock_data) }
           callSuper(...) #for classes inheriting from this, pass through unmatched iniitalization values
         },
-
+        
         #Compute the global reaction time, used by some parameters to scale relative differences 
         #  For subject-level data, global RT is average across all runs and trials
         #  For run-level data, global RT is average across trials.
@@ -106,7 +127,7 @@ clock_model <- setRefClass(
           #accept a variable number of parameter objects
           p_objs <- as.list(match.call())[-1L] #first element of match.call is a class for refMethodDef for the clock_model object
           p_objs <- lapply(p_objs, eval) #force initialization of param objects (otherwise stays as a language expression)
-                    
+          
           #use class names to name parameter list
           names(p_objs) <- lapply(p_objs, function(p) { class(p)[1L] })
           
@@ -222,6 +243,49 @@ clock_model <- setRefClass(
           unlist(unname(lapply(params, function(p) { p$par_scale })))
         },
         
+        incremental_fit=function(toFit=NULL, plot=TRUE, njobs=1L) {
+          #to test whether each parameter of the model improves fit, test model adding one parameter at a time
+          #N.B. Model variants are built in the order of the params list (so make sure the order is sensible)
+          
+          if (!is.null(toFit)) {
+            set_data(toFit)
+          }
+          
+          full_params <- params
+          
+          if (njobs > 1L) {
+            require(foreach)
+            require(doMC)
+            njobs <- min(parallel::detectCores(), njobs)
+            registerDoMC(njobs)
+          }
+          
+          model_results <- foreach(r=iter(1:length(full_params)), .inorder=TRUE) %dopar% {
+            #just to be safe, clone the clock_fit object.
+            #risk of model collisions among threads because refClasses use the same environment (not pass by value)
+            m <- .self$copy()
+            m$params <- full_params[1:r]
+            m$fit()
+          }
+
+          AICs <- sapply(model_results, function(m) { m$AIC })
+          nparams <- sapply(model_results, function(m) { m$nparams })
+          pnames <- paste(unlist(lapply(full_params, function(p) { p$name })), " : ", 1:length(full_params), sep="", collapse="\n")
+          
+          #require(ggplot2)
+          df <- data.frame(AIC=AICs, nparams=nparams)
+          g <- ggplot(df, aes(x=nparams, y=AIC)) + geom_point() + geom_line() + ggtitle("AIC values for increasing model complexity") +
+              annotate("text", x=max(df$nparams), y=max(df$AIC), hjust=1.0, vjust=1.0, label=pnames) + theme_bw(base_size=15) +
+              scale_x_continuous(breaks=1:length(full_params)) + xlab("Num params in model")
+          
+          if (plot) {
+            dev.new()
+            print(g)
+          }
+          
+          list(incremental_fits=model_results, AICplot=g)
+        },
+        
         fit=function(toFit=NULL, random_starts=NULL, profile=TRUE) {
           #can pass in new dataset at $fit call
           #if not passed in, use the current clock_data field
@@ -238,7 +302,7 @@ clock_model <- setRefClass(
           #require(optimx)
           optimizer <- "nlminb"
           #optimizer <- "optim"
-  
+          
           #call predict using optimizer
           if (length(initialValues) == 1L) { method="Brent"
           } else { method="L-BFGS-B" }
@@ -288,17 +352,14 @@ clock_model <- setRefClass(
               
             } else {
               warning("optimization failed.")
-              SSE <- NA
-              theta <- NA
+              SSE <- numeric(0)
+              theta <- rep(NA_real_, length(optResult$par))
             }
             
             clock_fit(total_SSE=SSE, elapsed_time=unclass(elapsed_time), opt_data=optResult, profile_data=prof)
-            
-            #list(SSE=SSE, theta=theta, opt_data=optResult, prof=prof, elapsed_time=elapsed_time)
-            
           }
           
-                    
+          
           if (!is.null(random_starts) && is.numeric(random_starts)) {
             require(foreach)
             require(doMC)
@@ -314,18 +375,19 @@ clock_model <- setRefClass(
                   })
             }
             initMat <- rbind(initMat, initialValues)
-
+            
             multFits <- foreach(r=iter(1:random_starts), .inorder=FALSE) %dopar% {
-              fitWorker(initialValues=initMat[r,], optimizer="optim")
+              fitWorker(initialValues=initMat[r,], optimizer="nlminb")
             }
             
-            browser()
-            #need to find the best one here
+            #need to find the best-fitting result here
+            #note that other fits are not saved at the moment
+            fit_output <- multFits[[ which.min(sapply(multFits, function(m) { m$total_SSE} )) ]]
             
           } else {
             fit_output <- fitWorker(initialValues)
           }
-                    
+          
           #possibilities for parallel optimization
           #require(DEoptim)
           #elapsed_time <- system.time(optResult <- DEoptim(fn=.self$predict, 
@@ -336,7 +398,7 @@ clock_model <- setRefClass(
           #        initial_estimates=as.matrix(initialValues), parameter_bounds=cbind(lower, upper),
           #        max_number_function_calls=200, projectfile=NULL, logfile=NULL))
           
-
+          
           
           #this is roughly what is suggested in the PORT documentation (1/max scaling). But it's slower than 1/magnitude above.
           #system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, lower=lower, upper=upper, scale=1/upper, #scale=c(1, 100, 100, 100, 100),
@@ -385,15 +447,19 @@ clock_model <- setRefClass(
             ## AIC, SSE
             
             ##at the moment, only works for subject and run fits, not group
+            ##This needs to be abstracted away from $fit... in case values are set manually and we use $predict etc.
             if (class(clock_data) == "clockdata_subject") {
               ntrials <- sum(unlist(lapply(clock_data$runs, function(r) { r$w$ntrials } )))
               RTobs <- do.call(rbind, lapply(clock_data$runs, function(r) { r$RTobs }))
               RTpred <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$RTpred }))
               Reward <- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))
-              bfs_var_fast <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_fast })) #trialwise estimate of uncertainty re: fast responses
-              bfs_var_slow <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_slow })) #trialwise estimate of uncertainty re: slow responses
-              bfs_mean_fast <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_fast })) #trialwise estimate of mean value for fast responses
-              bfs_mean_slow <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_slow })) #trialwise estimate of mean value for slow responses
+              if (exists("betaFastSlow", envir=clock_data$runs[[1L]]$w, inherits=FALSE)) {
+                hasBeta <- TRUE
+                bfs_var_fast <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_fast })) #trialwise estimate of uncertainty re: fast responses
+                bfs_var_slow <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_slow })) #trialwise estimate of uncertainty re: slow responses
+                bfs_mean_fast <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_fast })) #trialwise estimate of mean value for fast responses
+                bfs_mean_slow <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_slow })) #trialwise estimate of mean value for slow responses
+              } else { hasBeta <- FALSE }
               ev <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$V })) #expected value
               rpe <- Reward - ev #better or worse than expected?
               #get a list prediction contributions of each parameter per run: each element is a params x trials matrix 
@@ -414,10 +480,13 @@ clock_model <- setRefClass(
               feedback_onset <- if (length(clock_data$feedback_onset) == 0) NA else clock_data$feedback_onset
               iti_onset <- if (length(clock_data$iti_onset) == 0) NA else clock_data$iti_onset
               #these need to be stored as row vectors to be compatible with expected matrix data type in clock_fit
-              bfs_var_fast <- matrix(clock_data$w$betaFastSlow$var_fast, nrow=1) #trialwise estimate of uncertainty re: fast responses
-              bfs_var_slow <- matrix(clock_data$w$betaFastSlow$var_slow, nrow=1) #trialwise estimate of uncertainty re: slow responses
-              bfs_mean_fast <- matrix(clock_data$w$betaFastSlow$mean_fast, nrow=1) #trialwise estimate of mean value for fast responses
-              bfs_mean_slow <- matrix(clock_data$w$betaFastSlow$mean_slow, nrow=1) #trialwise estimate of mean value for slow responses
+              if (exists("betaFastSlow", envir=clock_data$w, inherits=FALSE)) {
+                hasBeta <- TRUE
+                bfs_var_fast <- matrix(clock_data$w$betaFastSlow$var_fast, nrow=1) #trialwise estimate of uncertainty re: fast responses
+                bfs_var_slow <- matrix(clock_data$w$betaFastSlow$var_slow, nrow=1) #trialwise estimate of uncertainty re: slow responses
+                bfs_mean_fast <- matrix(clock_data$w$betaFastSlow$mean_fast, nrow=1) #trialwise estimate of mean value for fast responses
+                bfs_mean_slow <- matrix(clock_data$w$betaFastSlow$mean_slow, nrow=1) #trialwise estimate of mean value for slow responses
+              } else { hasBeta <- FALSE }
               ev <- matrix(clock_data$w$V, nrow=1) #expected value
               rpe <- matrix(Reward - ev, nrow=1) #better or worse than expected?
             }
@@ -434,11 +503,14 @@ clock_model <- setRefClass(
             fit_output$iti_onset <- iti_onset
             fit_output$SSE <- SSE
             fit_output$AIC <- ntrials*(log(2*pi*(SSE/ntrials))+1) + 2*nparams
+            fit_output$nparams <- nparams
             fit_output$theta <- as.matrix(list_params())
-            fit_output$bfs_var_fast <- bfs_var_fast
-            fit_output$bfs_var_slow <- bfs_var_slow
-            fit_output$bfs_mean_fast <- bfs_mean_fast
-            fit_output$bfs_mean_slow <- bfs_mean_slow
+            if (hasBeta) {
+              fit_output$bfs_var_fast <- bfs_var_fast
+              fit_output$bfs_var_slow <- bfs_var_slow
+              fit_output$bfs_mean_fast <- bfs_mean_fast
+              fit_output$bfs_mean_slow <- bfs_mean_slow
+            }
             fit_output$ev <- ev
             fit_output$rpe <- rpe
           } else {

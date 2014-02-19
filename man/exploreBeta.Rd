@@ -6,13 +6,13 @@ exploreBeta(min_value = 0, max_value = 1e+05, init_value = 2000,
   cur_value = init_value, par_scale = 1000, by = NULL)
 }
 \arguments{
-  \item{min_value}{Lower bound for rho parameter.}
+  \item{min_value}{Lower bound for epsilon parameter.}
 
-  \item{max_value}{Upper bound for rho parameter.}
+  \item{max_value}{Upper bound for epsilon parameter.}
 
-  \item{init_value}{Initial value for rho parameter.}
+  \item{init_value}{Initial value for epsilon parameter.}
 
-  \item{cur_value}{Current value for rho parameter.}
+  \item{cur_value}{Current value for epsilon parameter.}
 
   \item{par_scale}{Expected parameter scale.}
 

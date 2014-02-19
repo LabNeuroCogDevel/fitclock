@@ -80,13 +80,13 @@ clockdata_group <- setRefClass(
 
 #' dataset object for subject-level data (multiple runs within a single subject)
 #' 
-#' If the \code{csv_file} field is passed at instantiation, data will be imported from the file specified.
+#' If the \code{dataset} field is passed at instantiation, data will be imported from the file specified.
 #' 
 #' @section Fields:
 #'    \describe{
 #'      \item{\code{subject_ID}:}{ unique identifier string for subject. }
 #'      \item{\code{runs}:}{ \code{list} of clockdata_run objects defining the subject. }
-#'      \item{\code{csv_file}:}{ comma-separated file containing behavior for subject (one or more runs, each with many trials) }
+#'      \item{\code{dataset}:}{ comma-separated file containing behavior for subject (one or more runs, each with many trials) }
 #'    }
 #' 
 #' @section Methods:
@@ -99,8 +99,7 @@ clockdata_group <- setRefClass(
 #' 
 #' @importFrom ggplot2 ggplot
 #' @importFrom methods setRefClass
-#' @importFrom fmri fmri.stimulus
-#' @importFrom fmri fmri.design
+#' @importFrom tools file_ext
 #' @export clockdata_subject
 #' @exportClass clockdata_subject
 clockdata_subject <- setRefClass(
@@ -108,12 +107,12 @@ clockdata_subject <- setRefClass(
     fields=list(
         subject_ID="character",
         runs="list",
-        csv_file="character"
+        dataset="character"
     ),
     methods=list(
-        initialize=function(subject_ID=NULL, runs=NULL, csv_file=NULL, ...) {
+        initialize=function(subject_ID=NULL, runs=NULL, dataset=NULL, ...) {
           if (is.null(subject_ID)) { 
-            stop("clockdata_subject requires subject_ID at initialization.") 
+            warning("clockdata_subject requires subject_ID at initialization.") #converted to warning so that $copy works
           } else {
             subject_ID <<- subject_ID
           }
@@ -124,19 +123,26 @@ clockdata_subject <- setRefClass(
               runs <<- runs
             } else { stop ("runs should be a list of clockdata_run objects or a single clockdata_run object")}
           }
-          if (!is.null(csv_file)) {
-            csv_file <<- csv_file
-            message("Importing data from csv file: ", csv_file)
-            .self$import_runs_from_csv()
+          if (!is.null(dataset)) {
+            .self$import_runs(dataset)
           }
           callSuper(...)
         },
-        import_runs_from_csv=function(fname=NULL) {          
-          if (is.null(fname)) { fname <- csv_file } #use subject data file
-          stopifnot(file.exists(fname))
-          #for now, assuming a relatively fixed format for these CSV files
+        import_runs=function(df=NULL) {
+          if (is.null(df)) { df <- dataset } #use subject data file, if available
           
-          sdata <- read.csv(fname, header=TRUE)
+          if (inherits(df, "data.frame")) {
+            sdata <- df
+          } else if (inherits(df, "character")) {
+            stopifnot(file.exists(df))
+            dataset <<- df
+            if (tolower(file_ext(df) == "csv")) {
+              message("Importing data from csv file: ", dataset)
+              sdata <- read.csv(fname, header=TRUE)
+            }
+          }
+          
+          #for now, assuming a relatively fixed format for these CSV files
           d_split <- split(sdata, sdata$run)
           
           for (d in d_split) {
@@ -247,6 +253,7 @@ clock_fit <- setRefClass(
         theta="matrix", #named matrix of parameters and bounds
         SSE="numeric", #vector or matrix of SSEs over subjects and runs
         AIC="numeric", 
+        nparams="numeric",
         elapsed_time="numeric",
         profile_data="list",
         opt_data="list", #list of results from optimizer
