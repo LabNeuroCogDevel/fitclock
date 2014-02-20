@@ -1,5 +1,6 @@
 \docType{class}
-\name{clock_model-class}
+\name{clock_model}
+\alias{clock_model}
 \alias{clock_model-class}
 \title{Object-oriented implementation of the Frank clock algorithm.}
 \description{
@@ -81,8 +82,8 @@ specified at initialization.
   }
 }
 \examples{
-\dontrun {
-exSubj <- clockdata_subject(subject_ID="008", dataset=data("clocksubject_fMRI_008jh"))
+#use example fMRI dataset distrbuted with package
+exSubj <- clockdata_subject(subject_ID="008", dataset=clocksubject_fMRI_008jh)
 
 exModel <- clock_model()
 exModel$add_params(
@@ -98,6 +99,5 @@ exModel$add_params(
 exModel$set_data(exSubj)
 incrFit <- exModel$incremental_fit(njobs=6)
 fit <- exModel$fit(random_starts=5)
-}
 }
 

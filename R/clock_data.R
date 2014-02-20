@@ -138,7 +138,7 @@ clockdata_subject <- setRefClass(
             dataset <<- df
             if (tolower(file_ext(df) == "csv")) {
               message("Importing data from csv file: ", dataset)
-              sdata <- read.csv(fname, header=TRUE)
+              sdata <- read.csv(df, header=TRUE)
             }
           }
           
@@ -336,8 +336,9 @@ clock_fit <- setRefClass(
             regressors=NULL,
             event_onsets=NULL,
             durations=NULL,
-            checkCollinearity=TRUE,
-            baselineCoefOrder=-1L, plot=TRUE) {
+            baselineCoefOrder=-1L, 
+            plot=TRUE,
+            writeTimingFiles=FALSE) {
           
           if (is.null(regressors)) {
             stop("regressor names, event onsets, and event durations must be specified.")
@@ -411,6 +412,17 @@ clock_fit <- setRefClass(
           
           dimnames(dmat)[[2L]] <- regressors
           
+          #write 3-column timing files to disk
+          if (writeTimingFiles) {
+            dir.create("run_timing", showWarnings=FALSE)
+            for (run in 1:dim(dmat)[1L]) {
+              for (reg in 1:dim(dmat)[2L]) {
+                fname <- paste0("run", run, "_", dimnames(dmat)[[2L]][reg], ".txt")
+                write.table(format(dmat[run,reg], digits=4), file=file.path("run_timing", fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
+              }
+            }
+          }
+          
           #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
           #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
           
@@ -425,31 +437,29 @@ clock_fit <- setRefClass(
           #dmat.convolve should now be a 1-d runs list where each element is a data.frame of convolved regressors.
           names(dmat.convolve) <- paste0("run", 1:length(dmat.convolve))
           
-          if (checkCollinearity) {
-            collinearityDiag.raw <- apply(dmat, 1, function(run) {
-                  #check correlations among regressors for trial-wise estimates
-                  cmat <- do.call(data.frame, lapply(run, function(regressor) {
-                            regressor[,"value"]
-                          }))
-                  
-                  corvals <- cor(cmat, use="pairwise.complete.obs")
-                  vifMat <- data.frame(cbind(const=rep(1,nrow(cmat)), cmat)) #add dummy constant for vif
-                  vifForm <- as.formula(paste("const ~ 1 +", paste(names(cmat), collapse=" + ")))
-                  
-                  varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
-                  list(r=corvals, vif=varInfl)
-                })
-            
-            collinearityDiag.convolve <- lapply(dmat.convolve, function(run) { #apply(dmat.convolve, 1, function(run) {                    
-                  corvals <- cor(run, use="pairwise.complete.obs")
-                  vifMat <- data.frame(cbind(const=rep(1,nrow(run)), run)) #add dummy constant for vif 
-                  vifForm <- as.formula(paste("const ~ 1 +", paste(names(run), collapse=" + ")))
-                  
-                  varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
-                  list(r=corvals, vif=varInfl)
-                })
-          }
-           
+          collinearityDiag.raw <- apply(dmat, 1, function(run) {
+                #check correlations among regressors for trial-wise estimates
+                cmat <- do.call(data.frame, lapply(run, function(regressor) {
+                          regressor[,"value"]
+                        }))
+                
+                corvals <- cor(cmat, use="pairwise.complete.obs")
+                vifMat <- data.frame(cbind(const=rep(1,nrow(cmat)), cmat)) #add dummy constant for vif
+                vifForm <- as.formula(paste("const ~ 1 +", paste(names(cmat), collapse=" + ")))
+                
+                varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
+                list(r=corvals, vif=varInfl)
+              })
+          
+          collinearityDiag.convolve <- lapply(dmat.convolve, function(run) { #apply(dmat.convolve, 1, function(run) {                    
+                corvals <- cor(run, use="pairwise.complete.obs")
+                vifMat <- data.frame(cbind(const=rep(1,nrow(run)), run)) #add dummy constant for vif 
+                vifForm <- as.formula(paste("const ~ 1 +", paste(names(run), collapse=" + ")))
+                
+                varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
+                list(r=corvals, vif=varInfl)
+              })
+          
           #add baseline terms to convolved design matrices
           if (baselineCoefOrder > -1L) {
             dmat.convolve <- lapply(dmat.convolve, function(r) {

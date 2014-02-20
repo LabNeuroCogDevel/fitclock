@@ -38,10 +38,11 @@
 #'      \item{\code{set_data(cdata)}:}{ Sets the clock dataset to be fit. cdata should be a clockdata object. Use this method if you wish to alter the clock_data field. }
 #' 
 #'    }
-#'
+#' 
 #' @examples
-#' \dontrun {
-#' exSubj <- clockdata_subject(subject_ID="008", dataset=data("clocksubject_fMRI_008jh"))
+#' 
+#' #use example fMRI dataset distrbuted with package
+#' exSubj <- clockdata_subject(subject_ID="008", dataset=clocksubject_fMRI_008jh)
 #' 
 #' exModel <- clock_model()
 #' exModel$add_params(
@@ -57,12 +58,13 @@
 #' exModel$set_data(exSubj)
 #' incrFit <- exModel$incremental_fit(njobs=6)
 #' fit <- exModel$fit(random_starts=5)
-#' }
+#' 
 #' @importFrom methods setRefClass
 #' @importFrom ggplot2 ggplot
 #' @export clock_model
 #' @exportClass clock_model
-
+#' @name clock_model
+#' @aliases clock_model-class
 #add a reset method here to set values back to initial (clear for re-using the same alg object with a new dataset)
 #actually, couldn't we just note when the dataset is updated and zero out parameters?
 clock_model <- setRefClass(
