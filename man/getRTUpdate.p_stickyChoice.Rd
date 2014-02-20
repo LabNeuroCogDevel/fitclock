@@ -1,0 +1,19 @@
+\name{getRTUpdate.p_stickyChoice}
+\alias{getRTUpdate.p_stickyChoice}
+\title{Compute reaction time contribution for stickyChoice (weight and decay for influence of sticky choice function)}
+\usage{
+\method{getRTUpdate}{p_stickyChoice}(obj, theta)
+}
+\arguments{
+  \item{obj}{the parameter object to be used for
+  prediction.}
+
+  \item{theta}{named vector of current values for
+  parameters in model.}
+}
+\description{
+Compute reaction time contribution for stickyChoice (weight
+and decay for influence of sticky choice function)
+}
+\keyword{internal}
+

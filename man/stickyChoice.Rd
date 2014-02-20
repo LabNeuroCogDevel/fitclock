@@ -1,0 +1,30 @@
+\name{stickyChoice}
+\alias{stickyChoice}
+\title{stickyChoice: weight and decay parameters to scale effect of prior RTs on current RT}
+\usage{
+stickyChoice(min_value = c(weight = 0, decay = 0), max_value = c(weight = 1,
+  decay = 1), init_value = c(weight = 0.3, decay = 0.1),
+  cur_value = init_value, par_scale = c(weight = 0.1, decay = 0.1),
+  by = NULL)
+}
+\arguments{
+  \item{min_value}{Lower bound for stickyChoice parameter.}
+
+  \item{max_value}{Upper bound for stickyChoice parameter.}
+
+  \item{init_value}{Initial value for stickyChoice
+  parameter.}
+
+  \item{cur_value}{Current value for stickyChoice
+  parameter.}
+
+  \item{par_scale}{Expected parameter scale.}
+
+  \item{by}{character vector defining one or more run-level
+  fields over which this parameter varies.}
+}
+\description{
+stickyChoice: weight and decay parameters to scale effect
+of prior RTs on current RT
+}
+

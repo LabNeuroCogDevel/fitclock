@@ -1,0 +1,30 @@
+\docType{data}
+\name{clocksubject_fMRI_008jh}
+\alias{clocksubject_fMRI_008jh}
+\title{Clock behavioral data for 400 trials across 8 fMRI runs from a single subject (008)}
+\format{A data.frame with 400 rows and 15 variables}
+\usage{
+data(clocksubject_fMRI_008jh)
+}
+\description{
+Dataset is a .csv file consisting of the following fields
+}
+\details{
+\itemize{ \item run. fMRI run (1:8) \item trial. Global
+trial number (1:400) \item rewFunc. Reward contingency
+(DEV, IEV, CEV, CEVR) \item emotion. Face emotion of
+central stimulus (scram, fear, happy) \item magnitude.
+Magnitude of expected reward given RT \item probability.
+Probability of expected reward given RT \item score.
+Obtained reward (probabilistic receipt of payoff) \item ev.
+Expected value of response given RT (magnitude*probability)
+\item rt. Reaction time (ms) \item clock_onset. Run onset
+time of clock stimulus (sec) \item isi_onset. Run onset
+time of 50ms ISI (sec) \item feedback_onset. Run onset time
+of 850ms reward feedback (sec) \item iti_onset. Run onset
+time of ITI (sec) \item iti_ideal. Desired ITI duration
+(sec) based on fMRI design optimization.  \item image.
+Image file displayed on screen. }
+}
+\keyword{datasets}
+
