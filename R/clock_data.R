@@ -148,7 +148,7 @@ clockdata_subject <- setRefClass(
           for (d in d_split) {
             r <- clockdata_run(
                 run_number=d$run[1L],
-                RTobs=d$rt, 
+                RTraw=d$rt, 
                 Reward=d$score,
                 global_trial_number=d$trial,
                 rew_function=as.character(d$rewFunc[1L]),
@@ -518,7 +518,8 @@ clockdata_run <- setRefClass(
         w="environment",
         SSE="numeric",
         run_number="numeric", #number of this run within a multi-run session
-        RTobs="numeric", #vector of observed RTs
+        RTobs="numeric", #vector of RTs to be fit (raw, differenced, smoothed, etc.)
+        RTraw="numeric", #vector of raw RTs
         Reward="numeric", #vector of obtained rewards
         avg_RT="numeric", #average reaction time, used for some parameter fits
         global_trial_number="numeric", #vector of trial numbers in the overall experiment (1..runs x trials/run)
@@ -531,27 +532,27 @@ clockdata_run <- setRefClass(
         iti_onset="numeric" #vector of fixation iti onset times (in seconds)
     ),
     methods=list(
-        initialize=function(run_number=NA_integer_, RTobs=NA_integer_, Reward=NA_integer_, global_trial_number=NA_integer_,
+        initialize=function(run_number=NA_integer_, RTraw=NA_integer_, Reward=NA_integer_, global_trial_number=NA_integer_,
             rew_function=NULL, run_condition=NA_character_, ...) {
           
           if (is.na(run_number[1L])) { stop("At this point, clockdata_run must have a run number indicating temporal order.") }
-          if (is.na(RTobs[1L])) { stop("construction of clockdata_run requires observed reaction times (RTobs)") }
+          if (is.na(RTraw[1L])) { stop("construction of clockdata_run requires observed reaction times (RTraw)") }
           if (is.na(Reward[1L])) { stop("construction of clockdata_run requires observed rewards (Reward)") }
           
           run_number <<- run_number
-          RTobs <<- RTobs
-          avg_RT <<- mean(RTobs, na.rm=TRUE)
+          RTraw <<- RTraw
+          avg_RT <<- mean(RTraw, na.rm=TRUE)
           Reward <<- Reward
           
           if (is.na(global_trial_number[1L])) { 
             warning("global_trial_number not provided. Defaulting to 1..t")
-            global_trial_number <<- 1:length(RTobs)
+            global_trial_number <<- 1:length(RTraw)
           } else {
             global_trial_number <<- global_trial_number
           }
           
-          if (length(unique(sapply(list(RTobs, Reward, global_trial_number), length))) > 1L) {
-            stop("RTobs, Reward, and global_trial_number must have the same length")
+          if (length(unique(sapply(list(RTraw, Reward, global_trial_number), length))) > 1L) {
+            stop("RTraw, Reward, and global_trial_number must have the same length")
           }
           
           if (is.null(rew_function)) { stop("Construction of clockdata_run requires rew_function") }

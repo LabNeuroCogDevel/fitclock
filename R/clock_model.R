@@ -59,6 +59,11 @@
 #' incrFit <- exModel$incremental_fit(njobs=6)
 #' fit <- exModel$fit(random_starts=5)
 #' 
+#' #Design matrix matching Badre et al. 2012 Neuron model.
+#' dmat <- fit$build_design_matrix(regressors=c("mean_uncertainty", "rel_uncertainty", "rpe_pos", "rpe_neg", "rt"), 
+#'     event_onsets=c("clock_onset", "clock_onset", "feedback_onset", "feedback_onset", "feedback_onset"), 
+#'     durations=c("rt", "rt", "feedback_duration", "feedback_duration", 0), baselineCoefOrder=2, writeTimingFiles=TRUE)
+#' 
 #' @importFrom methods setRefClass
 #' @importFrom ggplot2 ggplot
 #' @export clock_model
@@ -81,12 +86,13 @@ clock_model <- setRefClass(
         fit_result="clock_fit" #results object for fitted data (also returned by $fit)
     ),
     methods=list(
-        initialize=function(clock_data=NULL, ...) {
+        initialize=function(clock_data=NULL, use_global_avg_RT=TRUE, fit_RT_diffs=FALSE, ...) {
           cat("Initializing clock_model\n")
           
           params <<- list() #initialize empty list of model parameters
           noiseWt <<- 0 #do not add noise to RT prediction
-          use_global_avg_RT <<- TRUE #whether to use average RT across all blocks in fit (e.g., "go for gold" scales wrt avg_RT). 
+          use_global_avg_RT <<- use_global_avg_RT #whether to use average RT across all blocks in fit (e.g., "go for gold" scales wrt avg_RT).
+          fit_RT_diffs <<- fit_RT_diffs #whether to fit trialwise differences in RTs
           
           if (!is.null(clock_data)) { set_data(clock_data) }
           callSuper(...) #for classes inheriting from this, pass through unmatched iniitalization values
@@ -144,6 +150,24 @@ clock_model <- setRefClass(
           }
           
           clock_data <<- cdata
+          #compute RT diffs, if requested
+          if (fit_RT_diffs) {
+            if (class(clock_data) == "clockdata_subject") {
+              lapply(clock_data$runs, function(r) { r$RTobs <- c(0, diff(r$RTraw)) })
+            } else if (class(clock_data) == "clockdata_run") {
+              clock_data$RTobs <<- c(0, diff(clock_data$RTraw))
+            }
+          } else {
+            #if not fitting differences, just copy raw RTs
+            if (class(clock_data) == "clockdata_subject") {
+              lapply(clock_data$runs, function(r) { r$RTobs <- r$RTraw })
+            } else if (class(clock_data) == "clockdata_run") {
+              clock_data$RTobs <<- clock_data$RTraw
+            }
+          }
+          
+          #also allow for fitting of smoothed RTs.
+          
           set_global_avg_RT()
           
           setup_param_by()
