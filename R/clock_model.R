@@ -81,18 +81,20 @@ clock_model <- setRefClass(
         clock_data="ANY", #allow this to be dataset, subject, or run,
         use_global_avg_RT="logical",
         fit_RT_diffs="logical", #whether to difference RTs prior to fit (e.g., Badre)
+        smooth="numeric", #apply moving average smooth with window size
         global_avg_RT="numeric",
         all_by="character", #character vector that is the union of all run-level fields defining vary-by-run parameters
         fit_result="clock_fit" #results object for fitted data (also returned by $fit)
     ),
     methods=list(
-        initialize=function(clock_data=NULL, use_global_avg_RT=TRUE, fit_RT_diffs=FALSE, ...) {
+        initialize=function(clock_data=NULL, use_global_avg_RT=TRUE, fit_RT_diffs=FALSE, smooth=0L, ...) {
           cat("Initializing clock_model\n")
           
           params <<- list() #initialize empty list of model parameters
           noiseWt <<- 0 #do not add noise to RT prediction
           use_global_avg_RT <<- use_global_avg_RT #whether to use average RT across all blocks in fit (e.g., "go for gold" scales wrt avg_RT).
           fit_RT_diffs <<- fit_RT_diffs #whether to fit trialwise differences in RTs
+          smooth <<- smooth
           
           if (!is.null(clock_data)) { set_data(clock_data) }
           callSuper(...) #for classes inheriting from this, pass through unmatched iniitalization values
@@ -166,8 +168,15 @@ clock_model <- setRefClass(
             }
           }
           
-          #also allow for fitting of smoothed RTs.
-          
+          #also allow for fitting of moving average smoothed RTs.
+          if (smooth > 0L) {
+            if (class(clock_data) == "clockdata_subject") {
+              lapply(clock_data$runs, function(r) { r$RTobs <- runmean(r$RTobs, smooth) })
+            } else if (class(clock_data) == "clockdata_run") {
+              clock_data$RTobs <<- runmean(clock_data$RTobs, smooth)
+            }
+          }
+  
           set_global_avg_RT()
           
           setup_param_by()
@@ -681,3 +690,24 @@ clock_model <- setRefClass(
         })
 
 )
+
+
+runmean <- function(x, k=5) {
+  #adapted from caTools runmean
+  n <- length(x)
+  k2 = k%/%2
+  k1 = k - k2 - 1
+  y = c(sum(x[1:k]), diff(x, k))
+  y = cumsum(y)/k
+  y = c(rep(0, k1), y, rep(0, k2))
+  
+  idx1 = 1:k1
+  idx2 = (n - k2 + 1):n
+  
+  #use mean of available data at tails
+  for (i in idx1) y[i] = mean(x[1:(i + k2)])
+  for (i in idx2) y[i] = mean(x[(i - k1):n])
+  
+  return(y)
+}
+

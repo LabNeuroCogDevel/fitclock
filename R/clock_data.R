@@ -418,7 +418,7 @@ clock_fit <- setRefClass(
             for (run in 1:dim(dmat)[1L]) {
               for (reg in 1:dim(dmat)[2L]) {
                 fname <- paste0("run", run, "_", dimnames(dmat)[[2L]][reg], ".txt")
-                write.table(format(dmat[run,reg], digits=4), file=file.path("run_timing", fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
+                write.table(dmat[run,reg], file=file.path("run_timing", fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
               }
             }
           }
