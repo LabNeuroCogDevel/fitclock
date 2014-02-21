@@ -91,7 +91,7 @@ Finally, other fields, such as the ideal ITI length or the image displayed can b
 Setting up an analysis model
 ----------------------------
 
-Brief worked example
+Brief worked examples
 
 ```r
 library(fitclock)
@@ -135,12 +135,13 @@ expDiff_model$smooth <- 5 #window size of 5 trials
 expDiff_model$set_data(jh) #need to set dataset again to trigger use of smoothed RTs
 fsmooth <- expDiff_model$fit()
 
+###
 #model variant allowing for negative epsilon (exploit)
 #sticky choice variant (see Badre et al. 2012 Neuron)
 
 #test sticky choice
 negEps <- clock_model()
-atest$add_params(
+negEps$add_params(
     K=meanRT(max_value=4000),
     stickyChoice=stickyChoice(),
     alphaG=go(),
