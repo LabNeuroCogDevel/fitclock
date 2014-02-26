@@ -19,7 +19,7 @@ install_github("fitclock", "LabNeuroCogDevel", args="--byte-compile")
 library(fitclock)
 ```
 
-Examples
+Background and Architecture
 --------
 
 The package includes an example dataset of a single subject who completed

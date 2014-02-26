@@ -504,16 +504,17 @@ clock_model <- setRefClass(
               clock_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$clock_onset) == 0 ) NA else r$clock_onset }))
               feedback_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$feedback_onset) == 0 ) NA else r$feedback_onset }))
               iti_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$iti_onset) == 0 ) NA else r$iti_onset }))
-              
+              rew_function <- do.call(c, lapply(clock_data$runs, function(r) { r$rew_function }))
+              run_condition <- do.call(c, lapply(clock_data$runs, function(r) { r$run_condition }))
             } else if (class(clock_data) == "clockdata_run") {
               ntrials <- clock_data$w$ntrials
               RTobs <- matrix(clock_data$RTobs, nrow=1)
               RTpred <- matrix(clock_data$w$RTpred, nrow=1)
               Reward <- matrix(clock_data$Reward, nrow=1)
-              pred_contrib <- list(do.call(rbind, clock_data$w$pred_contrib))
-              clock_onset <- if (length(clock_data$clock_onset) == 0) NA else clock_data$clock_onset
-              feedback_onset <- if (length(clock_data$feedback_onset) == 0) NA else clock_data$feedback_onset
-              iti_onset <- if (length(clock_data$iti_onset) == 0) NA else clock_data$iti_onset
+              pred_contrib <- list(clock_data$w$pred_contrib)
+              clock_onset <- matrix(if (length(clock_data$clock_onset) == 0) NA else clock_data$clock_onset, nrow=1)
+              feedback_onset <- matrix(if (length(clock_data$feedback_onset) == 0) NA else clock_data$feedback_onset, nrow=1)
+              iti_onset <- matrix(if (length(clock_data$iti_onset) == 0) NA else clock_data$iti_onset, nrow=1)
               #these need to be stored as row vectors to be compatible with expected matrix data type in clock_fit
               if (exists("betaFastSlow", envir=clock_data$w, inherits=FALSE)) {
                 hasBeta <- TRUE
@@ -524,6 +525,8 @@ clock_model <- setRefClass(
               } else { hasBeta <- FALSE }
               ev <- matrix(clock_data$w$V, nrow=1) #expected value
               rpe <- matrix(Reward - ev, nrow=1) #better or worse than expected?
+              rew_function <- clock_data$rew_function
+              run_condition <- clock_data$run_condition
             }
             
             nparams <- length(fit_output$opt_data$par) #number of free parameters
@@ -548,6 +551,8 @@ clock_model <- setRefClass(
             }
             fit_output$ev <- ev
             fit_output$rpe <- rpe
+            fit_output$rew_function <- rew_function
+            fit_output$run_condition <- run_condition
           } else {
             warning("Optimization failed.")
             fit_output <- NULL
@@ -690,24 +695,3 @@ clock_model <- setRefClass(
         })
 
 )
-
-
-runmean <- function(x, k=5) {
-  #adapted from caTools runmean
-  n <- length(x)
-  k2 = k%/%2
-  k1 = k - k2 - 1
-  y = c(sum(x[1:k]), diff(x, k))
-  y = cumsum(y)/k
-  y = c(rep(0, k1), y, rep(0, k2))
-  
-  idx1 = 1:k1
-  idx2 = (n - k2 + 1):n
-  
-  #use mean of available data at tails
-  for (i in idx1) y[i] = mean(x[1:(i + k2)])
-  for (i in idx2) y[i] = mean(x[(i - k1):n])
-  
-  return(y)
-}
-

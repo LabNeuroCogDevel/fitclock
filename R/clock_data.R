@@ -266,71 +266,13 @@ clock_fit <- setRefClass(
         bfs_mean_fast="matrix",
         bfs_mean_slow="matrix",
         ev="matrix", #expected value
-        rpe="matrix" #reward prediction error
+        rpe="matrix", #reward prediction error
+        run_condition="character", #vector of run conditions
+        rew_function="character" #vector of reward contingencies        
     ),
     methods=list(
         initialize=function(...) {
           callSuper(...) #default assignment of fields
-        },
-        #extended from fmri package to support parametric regressor
-        fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1),
-            rt=3, times=NULL, mean=TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
-          
-          mygamma <- function(x, a1, a2, b1, b2, c) {
-            d1 <- a1 * b1
-            d2 <- a2 * b2
-            c1 <- ( x/d1 )^a1
-            c2 <- c * ( x/d2 )^a2
-            res <- c1 * exp(-(x-d1)/b1) - c2 * exp(-(x-d2)/b2)
-            res
-          }
-          
-          if (is.null(times)) {
-            scale <- 1
-          } else {
-            #upsample time grid by a factor of 100 to get best estimate of hrf at each volume 
-            scale <- 100
-            onsets <- times/rt*scale
-            durations <- durations/rt*scale
-            rt <- rt/scale
-            scans <- scans*scale
-          }
-          numberofonsets <- length(onsets)
-          
-          if (length(durations) == 1) {
-            durations <- rep(durations,numberofonsets)
-          } else if (length(durations) != numberofonsets)  {
-            stop("Length of durations vector does not match the number of onsets!")
-          }
-          
-          if (length(values) == 1) {
-            #use the same regressor height (usually 1.0) for all onsets
-            values <- rep(values, numberofonsets)
-          } else if (length(values) != numberofonsets) {
-            stop("Length of values vector does not match the number of onsets!")
-          }
-          
-          stimulus <- rep(0, scans)
-          
-          for (i in 1:numberofonsets) {
-            for (j in onsets[i]:(onsets[i]+durations[i]-1)) {
-              stimulus[j] <- values[i]
-            }
-          }
-          stimulus <- c(rep(0,20*scale),stimulus,rep(0,20*scale))
-          
-          #  zero pad stimulus vector to avoid bounding/edge effects in convolve
-          hrf <- convolve(stimulus,mygamma(((40*scale)+scans):1, a1, a2, b1/rt, b2/rt, cc))/scale
-          hrf <- hrf[-(1:(20*scale))][1:scans]
-          hrf <- hrf[unique((scale:scans)%/%scale)*scale]
-          
-          dim(hrf) <- c(scans/scale,1)
-          
-          if (mean) {
-            hrf - mean(hrf)
-          } else {
-            hrf
-          }
         },
         build_design_matrix=function(
             regressors=NULL,
@@ -473,7 +415,27 @@ clock_fit <- setRefClass(
           
           return(list(design=dmat, design.convolve=dmat.convolve, collin.raw=collinearityDiag.raw, collin.convolve=collinearityDiag.convolve))
           
+        },
+        plotRTs=function() {
+          rtDf <- data.frame(
+              run=rep(1:nrow(RTobs), each=length(RTobs)),
+              run_condition=rep(run_condition, each=length(RTobs)), 
+              rew_function=rep(rew_function, each=length(RTobs)),
+              reward=Reward,
+              rt=c(RTobs, RTpred),
+              rt_type=rep(c("observed", "predicted"), each=length(RTobs))
+            )
+            
+            rtPlot <- ggplot(rtDf, aes(x=trial, y=rt, color=rt_type))
+          
+          rtPlot <- rtPlot + geom_line(size=1.1) + ggtitle(paste(rtDf$rew_function, rtDf$run_condition, sep=", ")) +
+              theme_bw(base_size=14)
+          
+          print(rtPlot)
+          return(invisible(rtPlot))
+          
         }
+        
     )
 
 )
