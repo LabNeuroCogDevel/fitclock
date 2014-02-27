@@ -287,6 +287,27 @@ betaFastSlow <- function(
   return(invisible(obj))
 }
 
+#' gamma: reverse momentum parameter, adjust RTs incrementally in a direction before switching
+#' 
+#' @param min_value Lower bound for gamma parameter.
+#' @param max_value Upper bound for gamma parameter.
+#' @param init_value Initial value for gamma parameter.
+#' @param cur_value Current value for gamma parameter.
+#' @param par_scale Expected parameter scale.
+#' @param by character vector defining one or more run-level fields over which this parameter varies.
+#' 
+#' @export
+revMomentum <- function(min_value=0.0, max_value=1.0, init_value=0.5, cur_value=init_value, par_scale=1e-1, by=NULL) {
+  obj <- structure(
+      list(name = "gamma"), 
+      class=c("p_revMomentum", "param")
+  )
+  
+  obj <- initialize_par(obj, min_value, max_value, init_value, cur_value, par_scale, by) #check and initialize fields
+  return(invisible(obj))
+}
+
+
 ###
 #RT prediction functions for each parameter
 #' general dispatch of RT prediction for a parameter
@@ -541,6 +562,32 @@ getRTUpdate.p_epsilonBeta=function(obj, theta) {
   
   obj$w$explore #rtContrib  
 }
+
+
+#' Compute reaction time contribution for gamma (reverse momentum parameter)
+#'  
+#' @param obj the parameter object to be used for prediction.
+#' @param theta named vector of current values for parameters in model.
+#' @keywords internal
+getRTUpdate.p_revMomentum <- function(obj, theta) {
+  theta[obj$theta_lookup]
+  
+}
+
+#' Compute reaction time contribution for xi (regress to mean parameter)
+#' 
+#' @param obj the parameter object to be used for prediction.
+#' @param theta named vector of current values for parameters in model.
+#' @keywords internal
+getRTUpdate.p_regressMean <- function(obj, theta) {
+  theta[obj$theta_lookup]
+  
+  #regress = -exp_alt;  % for simple oscillation regression to mean explore control model
+}
+
+
+
+
 
 ##RESET WORKSPACE FUNCTIONS
 ##TODO: Does preallocating the pred_contrib vectors buy any time?

@@ -278,9 +278,11 @@ clock_fit <- setRefClass(
             regressors=NULL,
             event_onsets=NULL,
             durations=NULL,
-            baselineCoefOrder=-1L, 
+            baselineCoefOrder=-1L,
+            runVolumes=NULL, #vector of total fMRI volumes for each run (used for convolved regressors)
             plot=TRUE,
-            writeTimingFiles=FALSE) {
+            writeTimingFiles=NULL,
+            output_directory="run_timing") {
           
           if (is.null(regressors)) {
             stop("regressor names, event onsets, and event durations must be specified.")
@@ -292,10 +294,17 @@ clock_fit <- setRefClass(
           
           #require(fmri)
           
-          #determine the last fMRI volume to be analyzed
-          last_fmri_volume <- apply(.self$iti_onset, 1, function(itis) {
-                ceiling(itis[length(itis)] + 12.0 ) #fixed 12-second ITI after every run
-              })
+          if (is.null(runVolumes)) {
+            #determine the last fMRI volume to be analyzed
+            last_fmri_volume <- apply(.self$iti_onset, 1, function(itis) {
+                  ceiling(itis[length(itis)] + 12.0 ) #fixed 12-second ITI after every run
+                })
+            message("Assuming that last fMRI volume was 12 seconds after the onset of the last ITI.")
+            message(paste0("Resulting lengths: ", paste(last_fmri_volume, collapse=", ")))
+          } else {
+            if (length(runVolumes) != nrow(RTobs)) { stop("Length of runVolumes is ", length(runVolumes), ", but number of runs in fit object is ", nrow(RTobs)) }
+            last_fmri_volume <- runVolumes
+          }
           
           #build design matrix in the order specified
           dmat <- sapply(1:length(regressors), function(r) {
@@ -306,14 +315,17 @@ clock_fit <- setRefClass(
                   reg <- abs(bfs_var_fast - bfs_var_slow)
                 } else if (regressors[r] == "mean_uncertainty") {
                   reg <- abs(bfs_var_fast + bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
-                } else if (regressors[r] == "button_press") {
-                  reg <- matrix(1.0, dim(RTobs)) #standard task indicator regressor
+                } else if (regressors[r] == "ev") {
+                  reg <- ev #expected value
                 } else if (regressors[r] == "rpe_pos") {
                   reg <- apply(rpe, c(1,2), function(x) { if (x > 0) x else 0 }) #positive prediction error
                 } else if (regressors[r] == "rpe_neg") {
                   reg <- apply(rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
                 } else if (regressors[r] == "rt") {
-                  reg <- RTobs #parametric regressor for overall reaction time
+                  reg <- RTobs #parametric regressor for overall reaction time (from Badre)
+                } else {
+                  message("Assuming that ", regressors[r], " is a task indicator function.")
+                  reg <- matrix(1.0, dim(RTobs)) #standard task indicator regressor
                 }
                 
                 #replace missing values with 0 for clarity in convolution
@@ -354,16 +366,6 @@ clock_fit <- setRefClass(
           
           dimnames(dmat)[[2L]] <- regressors
           
-          #write 3-column timing files to disk
-          if (writeTimingFiles) {
-            dir.create("run_timing", showWarnings=FALSE)
-            for (run in 1:dim(dmat)[1L]) {
-              for (reg in 1:dim(dmat)[2L]) {
-                fname <- paste0("run", run, "_", dimnames(dmat)[[2L]][reg], ".txt")
-                write.table(dmat[run,reg], file=file.path("run_timing", fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
-              }
-            }
-          }
           
           #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
           #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
@@ -378,6 +380,43 @@ clock_fit <- setRefClass(
           
           #dmat.convolve should now be a 1-d runs list where each element is a data.frame of convolved regressors.
           names(dmat.convolve) <- paste0("run", 1:length(dmat.convolve))
+          
+          #Write timing files to disk for analysis by AFNI, FSL, etc.
+          if (!is.null(writeTimingFiles)) {
+            dir.create(output_directory, showWarnings=FALSE)
+            if (writeTimingFiles=="FSL") {
+              for (run in 1:dim(dmat)[1L]) {
+                for (reg in 1:dim(dmat)[2L]) {
+                  fname <- paste0("run", run, "_", dimnames(dmat)[[2L]][reg], ".txt")
+                  write.table(dmat[[run,reg]], file=file.path(output_directory, fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
+                }
+              }
+            } else if (writeTimingFiles=="AFNI") {
+              #use dmBLOCK-style regressors: time*modulation:duration
+              for (reg in 1:dim(dmat)[2L]) {
+                regMat <- c()
+                for (run in 1:dim(dmat)[1L]) {
+                  dmStr <- apply(dmat[[run,reg]], 1, function(row) {
+                        row <- plyr::round_any(row, .000001) #keep precision reasonable for output format 
+                        paste0(row["onset"], "*", row["value"], ":", row["duration"])
+                      })
+                  regMat <- rbind(regMat, dmStr)                  
+                }
+                fname <- paste0(dimnames(dmat)[[2L]][reg], ".txt")
+                write.table(regMat, file=file.path(output_directory, fname), sep="\t", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+              }
+            }
+            
+            #write convolved regressors
+            #AFNI amplitude modulation forces a mean and deviation from the mean regressor for each effect
+            #as a result, if two parametric influences occur at a given time, it leads to perfect collinearity.            
+            lapply(1:length(dmat.convolve), function(r) {
+              lapply(1:length(dmat.convolve[[r]]), function(v) {
+                    fname <- paste0(names(dmat.convolve)[r], "_", names(dmat.convolve[[r]][v]), ".1D")
+                    write.table(plyr::round_any(dmat.convolve[[r]][[v]], .000001), file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+                  })
+            })
+          }
           
           collinearityDiag.raw <- apply(dmat, 1, function(run) {
                 #check correlations among regressors for trial-wise estimates
