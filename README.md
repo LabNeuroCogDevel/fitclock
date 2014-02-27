@@ -154,3 +154,31 @@ negEps$set_data(jh)
 fnegEps <- negEps$fit()
 
 ```
+
+------------------------------------------
+Example of a simple delta_v learning model
+
+The basic delta_v model tries to find the learning rate that minimizes reward prediction errors
+(i.e., the discrepancy between expected value and obtained rewards). This model is divorced from
+fitting/predicting RTs per se, and instead tries to understand whether the agent is tracking value.
+
+```r
+
+library(fitclock)
+
+jh <- clockdata_subject(subject_ID="008_jh", dataset=clocksubject_fMRI_008jh)
+
+vm <- deltavalue_model(clock_data=jh, alphaV=0.1)
+vm$predict() #SSE of predicted - observed rewards at learning rate of 0.1
+V_0p1 <- vm$V #v matrix for learning rate of 0.1
+f <- vm$fit() #estimate learning rate as a free parameter
+V_free <- vm$V #v matrix for free parameter
+
+
+#design matrix: clock onset, feedback_onset, EV, PE-, PE+
+d <- f$build_design_matrix(regressors=c("clock", "feedback", "ev", "rpe_neg", "rpe_pos"), 
+    event_onsets=c("clock_onset", "feedback_onset", "feedback_onset", "feedback_onset", "feedback_onset"), 
+    durations=c(0, 0, "feedback_duration", "feedback_duration", "feedback_duration"), baselineCoefOrder=2, writeTimingFiles="AFNI",
+    runVolumes=c(223,273,280,244,324,228,282,310))
+
+```

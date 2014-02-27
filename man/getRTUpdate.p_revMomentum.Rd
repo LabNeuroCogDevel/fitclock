@@ -1,0 +1,19 @@
+\name{getRTUpdate.p_revMomentum}
+\alias{getRTUpdate.p_revMomentum}
+\title{Compute reaction time contribution for gamma (reverse momentum parameter)}
+\usage{
+\method{getRTUpdate}{p_revMomentum}(obj, theta)
+}
+\arguments{
+  \item{obj}{the parameter object to be used for
+  prediction.}
+
+  \item{theta}{named vector of current values for
+  parameters in model.}
+}
+\description{
+Compute reaction time contribution for gamma (reverse
+momentum parameter)
+}
+\keyword{internal}
+

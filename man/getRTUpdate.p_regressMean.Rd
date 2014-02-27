@@ -1,0 +1,19 @@
+\name{getRTUpdate.p_regressMean}
+\alias{getRTUpdate.p_regressMean}
+\title{Compute reaction time contribution for xi (regress to mean parameter)}
+\usage{
+\method{getRTUpdate}{p_regressMean}(obj, theta)
+}
+\arguments{
+  \item{obj}{the parameter object to be used for
+  prediction.}
+
+  \item{theta}{named vector of current values for
+  parameters in model.}
+}
+\description{
+Compute reaction time contribution for xi (regress to mean
+parameter)
+}
+\keyword{internal}
+

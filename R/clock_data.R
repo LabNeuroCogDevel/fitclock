@@ -246,6 +246,7 @@ clockdata_subject <- setRefClass(
 clock_fit <- setRefClass(
     Class="clock_fit",
     fields=list(
+        ntrials="numeric", #scalar of total trials
         RTobs="matrix", #trial vector (run), run x trial matrix (subject), or subject x run x trial matrix (group)
         RTpred="matrix",
         Reward="matrix",
@@ -273,6 +274,66 @@ clock_fit <- setRefClass(
     methods=list(
         initialize=function(...) {
           callSuper(...) #default assignment of fields
+        },
+        populate_fit=function(clock_data=NULL) {
+          if (is.null(clock_data)) { return(invisible(NULL)) }
+          #based on the clock_data object, populate the fit object with various relevant fields
+          #such as the iti_onset times, observed and predicted reaction times, etc.
+          #only populate field if it is not already initialized
+          if (class(clock_data) == "clockdata_subject") {
+            if (length(ntrials)==0L) { ntrials <<- sum(unlist(lapply(clock_data$runs, function(r) { r$w$ntrials } ))) }
+            if (length(RTobs)==0L) { RTobs <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$RTobs })) }
+            if (length(RTpred)==0L) { RTpred <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$RTpred })) }
+            if (length(Reward)==0L) { Reward <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))  }
+            if (length(clock_onset)==0L) { clock_onset <<- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$clock_onset) == 0 ) NA else r$clock_onset })) }
+            if (length(feedback_onset)==0L) { feedback_onset <<- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$feedback_onset) == 0 ) NA else r$feedback_onset })) }
+            if (length(iti_onset)==0L) { iti_onset <<- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$iti_onset) == 0 ) NA else r$iti_onset })) }
+            if (length(rew_function)==0L) { rew_function <<- do.call(c, lapply(clock_data$runs, function(r) { r$rew_function })) }
+            if (length(run_condition)==0L) { run_condition <<- do.call(c, lapply(clock_data$runs, function(r) { r$run_condition })) }
+            if (length(ev)==0L) { ev <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$V })) } #expected value
+            if (length(rpe)==0L) { rpe <<- Reward - ev } #better or worse than expected?
+            
+            #get a list prediction contributions of each parameter per run: each element is a params x trials matrix
+            if (length(pred_contrib)==0L) { 
+              pred_contrib <<- lapply(clock_data$runs, function(r) { 
+                    if (!is.null(r$w$pred_contrib)) { do.call(rbind, r$w$pred_contrib) } else { NULL } 
+                  }) 
+            }
+            #flatten this? 
+            #arr_pred_contrib <- do.call(abind, list(along=0, pred_contrib))
+            
+            if (exists("betaFastSlow", envir=clock_data$runs[[1L]]$w, inherits=FALSE)) {
+              hasBeta <- TRUE
+              bfs_var_fast <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_fast })) #trialwise estimate of uncertainty re: fast responses
+              bfs_var_slow <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_slow })) #trialwise estimate of uncertainty re: slow responses
+              bfs_mean_fast <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_fast })) #trialwise estimate of mean value for fast responses
+              bfs_mean_slow <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_slow })) #trialwise estimate of mean value for slow responses
+            } else { hasBeta <- FALSE }
+            
+          } else if (class(clock_data) == "clockdata_run") {
+            #shouldn't we be able to get out of this tedium by just say clock_data <- list(clock_data) so that a run becomes a list, matching style of runs within subject?
+            if (length(ntrials)==0L) { ntrials <<- clock_data$w$ntrials }
+            if (length(RTobs)==0L) { RTobs <<- matrix(clock_data$RTobs, nrow=1) }
+            if (length(RTpred)==0L) { RTpred <<- matrix(clock_data$w$RTpred, nrow=1) }
+            if (length(Reward)==0L) { Reward <<- matrix(clock_data$Reward, nrow=1) }
+            if (length(pred_contrib)==0L) { pred_contrib <<- list(clock_data$w$pred_contrib) }
+            if (length(clock_onset)==0L) { clock_onset <<- matrix(if (length(clock_data$clock_onset) == 0) NA else clock_data$clock_onset, nrow=1) }
+            if (length(feedback_onset)==0L) { feedback_onset <<- matrix(if (length(clock_data$feedback_onset) == 0) NA else clock_data$feedback_onset, nrow=1) }
+            if (length(iti_onset)==0L) { iti_onset <<- matrix(if (length(clock_data$iti_onset) == 0) NA else clock_data$iti_onset, nrow=1) }
+            if (length(rew_function)==0L) { rew_function <<- clock_data$rew_function }
+            if (length(run_condition)==0L) { run_condition <<- clock_data$run_condition }
+            if (length(ev)==0L) { ev <<- matrix(clock_data$w$V, nrow=1) } #expected value
+            if (length(rpe)==0L) { rpe <<- matrix(Reward - ev, nrow=1) } #better or worse than expected?
+            
+            #these need to be stored as row vectors to be compatible with expected matrix data type in clock_fit
+            if (exists("betaFastSlow", envir=clock_data$w, inherits=FALSE)) {
+              hasBeta <- TRUE
+              bfs_var_fast <<- matrix(clock_data$w$betaFastSlow$var_fast, nrow=1) #trialwise estimate of uncertainty re: fast responses
+              bfs_var_slow <<- matrix(clock_data$w$betaFastSlow$var_slow, nrow=1) #trialwise estimate of uncertainty re: slow responses
+              bfs_mean_fast <<- matrix(clock_data$w$betaFastSlow$mean_fast, nrow=1) #trialwise estimate of mean value for fast responses
+              bfs_mean_slow <<- matrix(clock_data$w$betaFastSlow$mean_slow, nrow=1) #trialwise estimate of mean value for slow responses
+            } else { hasBeta <- FALSE }
+          }
         },
         build_design_matrix=function(
             regressors=NULL,
@@ -409,14 +470,27 @@ clock_fit <- setRefClass(
             
             #write convolved regressors
             #AFNI amplitude modulation forces a mean and deviation from the mean regressor for each effect
-            #as a result, if two parametric influences occur at a given time, it leads to perfect collinearity.            
+            #as a result, if two parametric influences occur at a given time, it leads to perfect collinearity.
+            conv_concat <- list()
             lapply(1:length(dmat.convolve), function(r) {
-              lapply(1:length(dmat.convolve[[r]]), function(v) {
-                    fname <- paste0(names(dmat.convolve)[r], "_", names(dmat.convolve[[r]][v]), ".1D")
-                    write.table(plyr::round_any(dmat.convolve[[r]][[v]], .000001), file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
-                  })
-            })
+                  lapply(1:length(dmat.convolve[[r]]), function(v) {
+                        regName <- names(dmat.convolve[[r]])[v]
+                        fname <- paste0(names(dmat.convolve)[r], "_", regName, ".1D")
+                        toWrite <- plyr::round_any(dmat.convolve[[r]][[v]], .000001)
+                        conv_concat[[regName]] <<- c(conv_concat[[regName]], toWrite) #add for concatenated 1D file
+                        write.table(toWrite, file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+                      })              
+                })
+
+            #write run-concatenated convolved regressors (for use in AFNI)
+            lapply(1:length(conv_concat), function(v) {
+                  fname <- paste0(names(conv_concat)[v], "_concat.1D")
+                  write.table(conv_concat[[v]], file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+                })
+            
           }
+          
+          
           
           collinearityDiag.raw <- apply(dmat, 1, function(run) {
                 #check correlations among regressors for trial-wise estimates
@@ -463,9 +537,9 @@ clock_fit <- setRefClass(
               reward=Reward,
               rt=c(RTobs, RTpred),
               rt_type=rep(c("observed", "predicted"), each=length(RTobs))
-            )
-            
-            rtPlot <- ggplot(rtDf, aes(x=trial, y=rt, color=rt_type))
+          )
+          
+          rtPlot <- ggplot(rtDf, aes(x=trial, y=rt, color=rt_type))
           
           rtPlot <- rtPlot + geom_line(size=1.1) + ggtitle(paste(rtDf$rew_function, rtDf$run_condition, sep=", ")) +
               theme_bw(base_size=14)
@@ -474,7 +548,7 @@ clock_fit <- setRefClass(
           return(invisible(rtPlot))
           
         }
-        
+    
     )
 
 )

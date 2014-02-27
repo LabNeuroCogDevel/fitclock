@@ -176,7 +176,7 @@ clock_model <- setRefClass(
               clock_data$RTobs <<- runmean(clock_data$RTobs, smooth)
             }
           }
-  
+          
           set_global_avg_RT()
           
           setup_param_by()
@@ -302,7 +302,7 @@ clock_model <- setRefClass(
             m$params <- full_params[1:r]
             m$fit()
           }
-
+          
           AICs <- sapply(model_results, function(m) { m$AIC })
           nparams <- sapply(model_results, function(m) { m$nparams })
           pnames <- paste(unlist(lapply(full_params, function(p) { p$name })), " : ", 1:length(full_params), sep="", collapse="\n")
@@ -482,81 +482,21 @@ clock_model <- setRefClass(
             ## AIC, SSE
             
             ##at the moment, only works for subject and run fits, not group
-            ##This needs to be abstracted away from $fit... in case values are set manually and we use $predict etc.
-            if (class(clock_data) == "clockdata_subject") {
-              ntrials <- sum(unlist(lapply(clock_data$runs, function(r) { r$w$ntrials } )))
-              RTobs <- do.call(rbind, lapply(clock_data$runs, function(r) { r$RTobs }))
-              RTpred <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$RTpred }))
-              Reward <- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))
-              if (exists("betaFastSlow", envir=clock_data$runs[[1L]]$w, inherits=FALSE)) {
-                hasBeta <- TRUE
-                bfs_var_fast <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_fast })) #trialwise estimate of uncertainty re: fast responses
-                bfs_var_slow <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_slow })) #trialwise estimate of uncertainty re: slow responses
-                bfs_mean_fast <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_fast })) #trialwise estimate of mean value for fast responses
-                bfs_mean_slow <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_slow })) #trialwise estimate of mean value for slow responses
-              } else { hasBeta <- FALSE }
-              ev <- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$V })) #expected value
-              rpe <- Reward - ev #better or worse than expected?
-              #get a list prediction contributions of each parameter per run: each element is a params x trials matrix 
-              pred_contrib <- lapply(clock_data$runs, function(r) { do.call(rbind, r$w$pred_contrib) } )
-              #flatten this? 
-              #arr_pred_contrib <- do.call(abind, list(along=0, pred_contrib))
-              clock_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$clock_onset) == 0 ) NA else r$clock_onset }))
-              feedback_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$feedback_onset) == 0 ) NA else r$feedback_onset }))
-              iti_onset <- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$iti_onset) == 0 ) NA else r$iti_onset }))
-              rew_function <- do.call(c, lapply(clock_data$runs, function(r) { r$rew_function }))
-              run_condition <- do.call(c, lapply(clock_data$runs, function(r) { r$run_condition }))
-            } else if (class(clock_data) == "clockdata_run") {
-              ntrials <- clock_data$w$ntrials
-              RTobs <- matrix(clock_data$RTobs, nrow=1)
-              RTpred <- matrix(clock_data$w$RTpred, nrow=1)
-              Reward <- matrix(clock_data$Reward, nrow=1)
-              pred_contrib <- list(clock_data$w$pred_contrib)
-              clock_onset <- matrix(if (length(clock_data$clock_onset) == 0) NA else clock_data$clock_onset, nrow=1)
-              feedback_onset <- matrix(if (length(clock_data$feedback_onset) == 0) NA else clock_data$feedback_onset, nrow=1)
-              iti_onset <- matrix(if (length(clock_data$iti_onset) == 0) NA else clock_data$iti_onset, nrow=1)
-              #these need to be stored as row vectors to be compatible with expected matrix data type in clock_fit
-              if (exists("betaFastSlow", envir=clock_data$w, inherits=FALSE)) {
-                hasBeta <- TRUE
-                bfs_var_fast <- matrix(clock_data$w$betaFastSlow$var_fast, nrow=1) #trialwise estimate of uncertainty re: fast responses
-                bfs_var_slow <- matrix(clock_data$w$betaFastSlow$var_slow, nrow=1) #trialwise estimate of uncertainty re: slow responses
-                bfs_mean_fast <- matrix(clock_data$w$betaFastSlow$mean_fast, nrow=1) #trialwise estimate of mean value for fast responses
-                bfs_mean_slow <- matrix(clock_data$w$betaFastSlow$mean_slow, nrow=1) #trialwise estimate of mean value for slow responses
-              } else { hasBeta <- FALSE }
-              ev <- matrix(clock_data$w$V, nrow=1) #expected value
-              rpe <- matrix(Reward - ev, nrow=1) #better or worse than expected?
-              rew_function <- clock_data$rew_function
-              run_condition <- clock_data$run_condition
-            }
+            fit_output$populate_fit(clock_data) #add various fields to fit such as clock_onset
+            fit_output$theta <- as.matrix(.self$list_params())
+            
             
             nparams <- length(fit_output$opt_data$par) #number of free parameters
-            
-            
-            fit_output$RTobs <- RTobs
-            fit_output$RTpred <- RTpred
-            fit_output$Reward <- Reward
-            fit_output$pred_contrib <- pred_contrib
-            fit_output$clock_onset <- clock_onset
-            fit_output$feedback_onset <- feedback_onset
-            fit_output$iti_onset <- iti_onset
             fit_output$SSE <- SSE
-            fit_output$AIC <- ntrials*(log(2*pi*(SSE/ntrials))+1) + 2*nparams
+            fit_output$AIC <- fit_output$ntrials*(log(2*pi*(SSE/fit_output$ntrials))+1) + 2*nparams
             fit_output$nparams <- nparams
-            fit_output$theta <- as.matrix(list_params())
-            if (hasBeta) {
-              fit_output$bfs_var_fast <- bfs_var_fast
-              fit_output$bfs_var_slow <- bfs_var_slow
-              fit_output$bfs_mean_fast <- bfs_mean_fast
-              fit_output$bfs_mean_slow <- bfs_mean_slow
-            }
-            fit_output$ev <- ev
-            fit_output$rpe <- rpe
-            fit_output$rew_function <- rew_function
-            fit_output$run_condition <- run_condition
+
           } else {
             warning("Optimization failed.")
             fit_output <- NULL
           }
+          
+          fit_result <<- fit_output
           
           return(fit_output)
           
@@ -694,4 +634,85 @@ clock_model <- setRefClass(
           return(SSE)
         })
 
+)
+
+
+#' Simple delta rule model for learning expected value across trials.
+#' 
+#' Just uses the observed reward history to fit a single learning rate
+#' representing the extent to which the agent discounts the information
+#' from the reinforcement history.
+#' 
+#' The goal of this model is to provide a benchmark
+
+#' @importFrom methods setRefClass
+#' @export deltavalue_model
+#' @exportClass deltavalue_model
+#' @name deltavalue_model
+#' @aliases deltavalue_model-class
+deltavalue_model <- setRefClass(
+    Class="deltavalue_model",
+    fields=list(
+        alphaV="numeric", #vector (min, max, init, current, par_scale) for learning rate of value update.
+        V="matrix", #runs x trials matrix of learned (expected) value
+        clock_data="ANY", #allow this to be dataset, subject, or run,
+        fit_result="clock_fit" #not used at the moment
+    ),
+    methods=list(
+        initialize=function(clock_data=NULL, alphaV=0.3, ...) {
+          cat("Initializing delta-rule value model \n")
+          alphaV <<- c(min=0.0, max=1.0, init=alphaV, cur=alphaV, par_scale=1e-1)
+          clock_data <<- clock_data
+          callSuper(...) #initialize any additional fields.
+        },
+        reset_v=function() {
+          if (!is.null(clock_data)) {
+            if (class(clock_data) == "clockdata_subject") {
+              V <<- matrix(NA_real_, nrow=length(clock_data$runs), ncol=length(clock_data$runs[[1L]]$Reward)) #runs x trials
+            } else if (class(clock_data) == "clockdata_run") {
+              V <<- matrix(NA_real_, nrow=1, ncol=length(clock_data$Reward)) #1 x trials
+            }
+          }
+        },
+        fit=function(toFit=NULL) {
+          if (!is.null(toFit)) { clock_data <<- toFit }
+          
+          #this is the most sensible, and corresponds to optim above (and is somewhat faster)
+          elapsed_time <- system.time(optResult <- nlminb(start=c(alphaV=unname(alphaV["init"])), objective=.self$predict,
+                  lower=alphaV["min"], upper=alphaV["max"], scale=1/alphaV["par_scale"]))
+          
+          if (optResult$convergence == 0) {
+            message("fit converged.")
+            SSE <- optResult$objective
+            alphaV["cur"] <<- optResult$par
+            message("Fitted learning rate: ", plyr::round_any(alphaV["cur"], .0001))
+          }
+          
+          f <- clock_fit(ev=V, SSE=SSE, theta=as.matrix(alphaV, nrow=1), elapsed_time=unclass(elapsed_time), opt_data=optResult)
+          f$populate_fit(clock_data)
+          fit_result <<- f #copy fit to model object
+          return(f)
+        },
+        predict=function(theta=c(alphaV=unname(alphaV["cur"]))) {
+          reset_v()
+          
+          if (class(clock_data)=="clockdata_subject") {     
+            Reward <- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))
+          } else if (class(clock_data)=="clockdata_run") {
+            Reward <- matrix(clock_data$Reward, nrow=1)
+          }
+
+          for (r in 1:nrow(Reward)) {
+            if (r > 1L) {
+              V[r, 1] <<- V[r-1, ncol(V)] #use value from last trial of prior run
+            } else { V[r, 1] <<- 0 }
+
+            for (t in 2:ncol(Reward)) {
+              V[r, t] <<- V[r, t-1] + theta["alphaV"]*(Reward[r, t-1] - V[r, t-1])
+            }
+          }
+          
+          SSE <- sum((Reward - V)^2)         
+          return(SSE)
+        })
 )

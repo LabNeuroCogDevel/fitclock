@@ -99,5 +99,10 @@ exModel$add_params(
 exModel$set_data(exSubj)
 incrFit <- exModel$incremental_fit(njobs=6)
 fit <- exModel$fit(random_starts=5)
+
+#Design matrix matching Badre et al. 2012 Neuron model.
+dmat <- fit$build_design_matrix(regressors=c("mean_uncertainty", "rel_uncertainty", "rpe_pos", "rpe_neg", "rt"),
+    event_onsets=c("clock_onset", "clock_onset", "feedback_onset", "feedback_onset", "feedback_onset"),
+    durations=c("rt", "rt", "feedback_duration", "feedback_duration", 0), baselineCoefOrder=2, writeTimingFiles=TRUE)
 }
 
