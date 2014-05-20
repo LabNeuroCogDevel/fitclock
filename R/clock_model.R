@@ -653,15 +653,24 @@ clock_model <- setRefClass(
 deltavalue_model <- setRefClass(
     Class="deltavalue_model",
     fields=list(
-        alphaV="numeric", #vector (min, max, init, current, par_scale) for learning rate of value update.
+        theta="matrix", #matrix of param ests, bounds, starting values
         V="matrix", #runs x trials matrix of learned (expected) value
         clock_data="ANY", #allow this to be dataset, subject, or run,
         fit_result="clock_fit" #not used at the moment
     ),
     methods=list(
-        initialize=function(clock_data=NULL, alphaV=0.3, ...) {
+        initialize=function(clock_data=NULL, alphaV=0.3, betaV=NULL, ...) {
           cat("Initializing delta-rule value model \n")
-          alphaV <<- c(min=0.0, max=1.0, init=alphaV, cur=alphaV, par_scale=1e-1)
+          
+          alphaV <- c(min=0.0, max=1.0, init=alphaV, cur=alphaV, par_scale=1e-1)
+          if (!is.null(betaV)) {
+            betaV <- c(min=0.0, max=1.0, init=betaV, cur=betaV, par_scale=1e-1)
+          } else {
+            betaV <- numeric(0)
+          }
+          
+          theta <<- rbind(alphaV, betaV)
+          
           clock_data <<- clock_data
           callSuper(...) #initialize any additional fields.
         },
@@ -676,43 +685,57 @@ deltavalue_model <- setRefClass(
         },
         fit=function(toFit=NULL) {
           if (!is.null(toFit)) { clock_data <<- toFit }
-          
           #this is the most sensible, and corresponds to optim above (and is somewhat faster)
-          elapsed_time <- system.time(optResult <- nlminb(start=c(alphaV=unname(alphaV["init"])), objective=.self$predict,
-                  lower=alphaV["min"], upper=alphaV["max"], scale=1/alphaV["par_scale"]))
+          elapsed_time <- system.time(optResult <- nlminb(start=theta[,"init"], objective=.self$predict,
+                  lower=theta[,"min"], upper=theta[,"max"], scale=1/theta[,"par_scale"]))
           
           if (optResult$convergence == 0) {
             message("fit converged.")
             SSE <- optResult$objective
-            alphaV["cur"] <<- optResult$par
-            message("Fitted learning rate: ", plyr::round_any(alphaV["cur"], .0001))
+            theta[,"cur"] <<- optResult$par
+            message("Fitted learning rate: ", plyr::round_any(theta[,"cur"], .0001))
           }
           
-          f <- clock_fit(ev=V, SSE=SSE, theta=as.matrix(alphaV, nrow=1), elapsed_time=unclass(elapsed_time), opt_data=optResult)
+          f <- clock_fit(ev=V, SSE=SSE, theta=theta, elapsed_time=unclass(elapsed_time), opt_data=optResult)
           f$populate_fit(clock_data)
           fit_result <<- f #copy fit to model object
           return(f)
         },
-        predict=function(theta=c(alphaV=unname(alphaV["cur"]))) {
-          reset_v()
-          
+        predict=function(params=theta[,"cur", drop=F], returnFit=FALSE) {
+          if (is.null(names(params))) { names(params) <- rownames(theta) } #single element select loses name
+  
+          #this would be more efficient in $fit. But leads to redundant code, and fit isn't too slow anyway.
           if (class(clock_data)=="clockdata_subject") {     
             Reward <- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))
           } else if (class(clock_data)=="clockdata_run") {
             Reward <- matrix(clock_data$Reward, nrow=1)
           }
-
+          
+          reset_v()
+          hasBeta <- "betaV" %in% names(params)
           for (r in 1:nrow(Reward)) {
             if (r > 1L) {
               V[r, 1] <<- V[r-1, ncol(V)] #use value from last trial of prior run
             } else { V[r, 1] <<- 0 }
 
             for (t in 2:ncol(Reward)) {
-              V[r, t] <<- V[r, t-1] + theta["alphaV"]*(Reward[r, t-1] - V[r, t-1])
+              if (hasBeta) {
+                V[r, t] <<- V[r, t-1] + if (Reward[r,t] > 0) { params["alphaV"] } else { params["betaV"] } *(Reward[r, t-1] - V[r, t-1])  
+              } else {
+                V[r, t] <<- V[r, t-1] + params["alphaV"]*(Reward[r, t-1] - V[r, t-1])
+              }
             }
           }
           
-          SSE <- sum((Reward - V)^2)         
-          return(SSE)
+          SSE <- sum((Reward - V)^2)
+          if (returnFit) {
+            #return a fit object based on predicted values.
+            f <- clock_fit(ev=V, SSE=SSE, theta=theta)
+            f$populate_fit(clock_data)
+            return(f)
+          } else {
+            return(SSE) #usual return for optimization 
+          }
+
         })
 )
