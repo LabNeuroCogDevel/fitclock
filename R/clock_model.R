@@ -303,14 +303,15 @@ clock_model <- setRefClass(
             m$fit()
           }
           
-          AICs <- sapply(model_results, function(m) { m$AIC })
-          nparams <- sapply(model_results, function(m) { m$nparams })
+          #treat missing AIC as NA (occurs when optimization does not converge)
+          AICs <- sapply(model_results, function(m) { ifelse (identical(m$AIC, numeric(0)), NA_real_, m$AIC) })
+          nparams <- sapply(model_results, function(m) { ifelse (identical(m$nparams, numeric(0)), NA_real_, m$nparams) })
           pnames <- paste(unlist(lapply(full_params, function(p) { p$name })), " : ", 1:length(full_params), sep="", collapse="\n")
           
           #require(ggplot2)
           df <- data.frame(AIC=AICs, nparams=nparams)
           g <- ggplot(df, aes(x=nparams, y=AIC)) + geom_point() + geom_line() + ggtitle("AIC values for increasing model complexity") +
-              annotate("text", x=max(df$nparams), y=max(df$AIC), hjust=1.0, vjust=1.0, label=pnames) + theme_bw(base_size=15) +
+              annotate("text", x=max(df$nparams, na.rm=TRUE), y=max(df$AIC, na.rm=TRUE), hjust=1.0, vjust=1.0, label=pnames) + theme_bw(base_size=15) +
               scale_x_continuous(breaks=1:length(full_params)) + xlab("Num params in model")
           
           if (plot) {
@@ -493,7 +494,7 @@ clock_model <- setRefClass(
 
           } else {
             warning("Optimization failed.")
-            fit_output <- NULL
+            fit_output <- clock_fit() #empty fit object
           }
           
           fit_result <<- fit_output

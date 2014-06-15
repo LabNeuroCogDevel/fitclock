@@ -426,7 +426,7 @@ clock_fit <- setRefClass(
           
           #Write timing files to disk for analysis by AFNI, FSL, etc.
           if (!is.null(writeTimingFiles)) {
-            dir.create(output_directory, showWarnings=FALSE)
+            dir.create(output_directory, recursive=TRUE, showWarnings=FALSE)
             if (writeTimingFiles=="FSL") {
               for (run in 1:dim(dmat)[1L]) {
                 for (reg in 1:dim(dmat)[2L]) {
@@ -471,8 +471,6 @@ clock_fit <- setRefClass(
                 })
             
           }
-          
-          
           
           collinearityDiag.raw <- apply(dmat, 1, function(run) {
                 #check correlations among regressors for trial-wise estimates
