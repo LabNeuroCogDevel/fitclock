@@ -12,7 +12,7 @@ rewards <- run1$Reward
 #Simple Code for CSC/PR/MS TD Model with Actions.
 
 #Model Parameters
-numms = 12         #Number of microstimuli per stimulus
+numms_basis = 12         #Number of microstimuli per stimulus
 numstimuli = 1     #Number of stimuli, including the reward/US (here we just have US)
 alpha = 0.05       #Step-size
 #decay = 0.985      #Memory Trace decay rate
@@ -31,22 +31,23 @@ numtrials = length(rts)
 numtimesteps = 4000 #1ms bins in a 4000ms trial
 
 ## Initialize Data Vectors:
-x = rep(0, (numms + 1)*numstimuli)         #Stimulus representation
-w = rep(0, (numms + 1)*numstimuli)         #Weight vector
-e = rep(0, (numms + 1)*numstimuli)         #Eligibility Traces
+x = matrix(data=0, nrow=numstimuli, ncol=numms_basis)        #Stimulus representation
+w = matrix(data=0, nrow=numstimuli, ncol=numms_basis)        #Weight vector
+e = matrix(data=0, nrow=numstimuli, ncol=numms_basis)        #Eligibility Traces
 delta = matrix(data=0, nrow=numtrials, ncol=numtimesteps)    #TD Errors
 value = matrix(data=0, nrow=numtrials, ncol=numtimesteps)    #Value functions
 action = matrix(data=0, nrow=numtrials, ncol=numtimesteps)   #Response Levels
-ms = matrix(data=0, nrow=numtimesteps, ncol=numms)           #Microstimulus levels
-#maxaction = zeros (1, numtrials);           
+ms = matrix(data=0, nrow=numtimesteps, ncol=numms_basis)           #Microstimulus levels
+#maxaction = zeros (1, numtrials);
 
 stimulustime <- matrix(rts, ncol=1) #stimulus onset time, here just the US
 
+## MS is the master matrix of basis functions for any given stimulus
 ## Microstimulus Generation (NIPS2009 Version)
-trace = 1;
+trace = 1
 for (timestep in 1:numtimesteps) {
-  for (micro in 1:numms) {
-    ms[timestep, micro] = trace * ((1/sqrt(2*pi))*exp(-((trace-(micro/numms))^2)/(2*(sigma^2))));    
+  for (micro in 1:numms_basis) {
+    ms[timestep, micro] = trace * ((1/sqrt(2*pi))*exp(-((trace-(micro/numms_basis))^2)/(2*(sigma^2))));    
   }
   trace = trace * decay;
 }
@@ -61,17 +62,21 @@ ggplot(ms_melt, aes(x=timestep, y=value, color=msnumber)) + geom_line()
 
 ##fit data
 ##Run Simuluation:
-  
+
+rewdeliv <- 0
+
 for (trial in 1:numtrials) {
   oldvalue = 0;               # Reset on every trial
   #oldreward = 0;
   oldaction = 0;
-  e = rep(0, (numms + 1)*numstimuli)
+  e = matrix(data=0, nrow=numstimuli, ncol=numms_basis) #reset eligibility trace
   rewardtime = rts[trial];
   
   for (timestep in 1:numtimesteps) {
     if (timestep == rewardtime) {
+      rewdeliv <- rewdeliv + 1
       reward = rewards[trial]
+      #cat("rew count: ", rewdeliv, "\n")
     } else {    
       reward = 0
     }
@@ -82,25 +87,33 @@ for (trial in 1:numtrials) {
       if (timestep >= stimulustime[trial, stimulus]) {
         #noise = rand*0.02 -.01; (unused)
         noise = 0;
-        x [(stimulus-1)*numms +1:(stimulus-1)*numms +numms] = ms[timestep-stimulustime[trial, stimulus]+1,] + noise;     
+        x [stimulus, ] <- ms[timestep - stimulustime[trial, stimulus] + 1, ] + noise
+        #x [(stimulus-1)*numms_basis +1:(stimulus-1)*numms_basis +numms_basis] = ms[timestep-stimulustime[trial, stimulus]+1,] + noise;     
       } else {
-        x [(stimulus-1)*numms +1:(stimulus-1)*numms +numms] = 0;
-        x [numstimuli * numms + stimulus] = 0;
+        x [stimulus, ] <- 0
+        #x [(stimulus-1)*numms_basis +1:(stimulus-1)*numms_basis +numms_basis] = 0;
+        #x [numstimuli * numms_basis + stimulus] = 0; #this is updating the numms + 1 initial specification of x (19:21 in the 3 stim x 6 basis setup...). Don't get it. 
       }
     }
 
-    value (trial, timestep) = crossprod(x,w)
+    #I think what is happening is that 
+    
+    #if (reward > 0) browser()
+    value[trial, timestep] = tcrossprod(x,w) #inner product
     
     #Action Selection:
     action[trial, timestep] = upsilon * oldaction + max (0, oldvalue - theta)
     oldaction=action[trial, timestep]
     
     #Learning Algorithm:
-    delta[trial, timestep] = reward + (gamma * value (trial, timestep)) - oldvalue #TD Learning
+    delta[trial, timestep] = reward + (gamma * value[trial, timestep]) - oldvalue #TD Learning
     
     w = w + (alpha * delta[trial, timestep] * e)
     e = x + (gamma * lambda * e)
-    oldvalue = crossprod(x,w) #Or oldvalue = value. Difference in which weights are used.
+    oldvalue = tcrossprod(x,w) #Or oldvalue = value. Difference in which weights are used.
+    
+    cat("range of value: ", range(value), "\n")
+    
     #oldreward = reward
   
   }
