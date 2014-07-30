@@ -351,7 +351,7 @@ clock_model <- setRefClass(
             
             #track optimization
             if (profile) { 
-              prof_file <- tempfile(pattern="Rprof", tmpdir=".", fileext=".out")
+              prof_file <- tempfile(pattern="Rprof", tmpdir=tempdir(), fileext=".out")
               Rprof(prof_file)
             }
             
