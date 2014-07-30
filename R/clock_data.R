@@ -429,14 +429,14 @@ clock_fit <- setRefClass(
           #Write timing files to disk for analysis by AFNI, FSL, etc.
           if (!is.null(writeTimingFiles)) {
             dir.create(output_directory, recursive=TRUE, showWarnings=FALSE)
-            if (writeTimingFiles=="FSL") {
+            if ("FSL" %in% writeTimingFiles) {
               for (run in 1:dim(dmat)[1L]) {
                 for (reg in 1:dim(dmat)[2L]) {
-                  fname <- paste0("run", run, "_", dimnames(dmat)[[2L]][reg], ".txt")
+                  fname <- paste0("run", run, "_", dimnames(dmat)[[2L]][reg], "_FSL3col.txt")
                   write.table(dmat[[run,reg]], file=file.path(output_directory, fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
                 }
               }
-            } else if (writeTimingFiles=="AFNI") {
+            } else if ("AFNI" %in% writeTimingFiles) {
               #use dmBLOCK-style regressors: time*modulation:duration
               for (reg in 1:dim(dmat)[2L]) {
                 regMat <- c()
@@ -447,31 +447,30 @@ clock_fit <- setRefClass(
                       })
                   regMat <- rbind(regMat, dmStr)                  
                 }
-                fname <- paste0(dimnames(dmat)[[2L]][reg], ".txt")
+                fname <- paste0(dimnames(dmat)[[2L]][reg], "_dmBLOCK.txt")
                 write.table(regMat, file=file.path(output_directory, fname), sep="\t", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
               }
+              
+              #write convolved regressors
+              #AFNI amplitude modulation forces a mean and deviation from the mean regressor for each effect
+              #as a result, if two parametric influences occur at a given time, it leads to perfect collinearity.
+              conv_concat <- list()
+              lapply(1:length(dmat.convolve), function(r) {
+                    lapply(1:length(dmat.convolve[[r]]), function(v) {
+                          regName <- names(dmat.convolve[[r]])[v]
+                          fname <- paste0(names(dmat.convolve)[r], "_", regName, ".1D")
+                          toWrite <- plyr::round_any(dmat.convolve[[r]][[v]], .000001)
+                          conv_concat[[regName]] <<- c(conv_concat[[regName]], toWrite) #add for concatenated 1D file
+                          write.table(toWrite, file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+                        })              
+                  })
+              
+              #write run-concatenated convolved regressors (for use in AFNI)
+              lapply(1:length(conv_concat), function(v) {
+                    fname <- paste0(names(conv_concat)[v], "_concat.1D")
+                    write.table(conv_concat[[v]], file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+                  })
             }
-            
-            #write convolved regressors
-            #AFNI amplitude modulation forces a mean and deviation from the mean regressor for each effect
-            #as a result, if two parametric influences occur at a given time, it leads to perfect collinearity.
-            conv_concat <- list()
-            lapply(1:length(dmat.convolve), function(r) {
-                  lapply(1:length(dmat.convolve[[r]]), function(v) {
-                        regName <- names(dmat.convolve[[r]])[v]
-                        fname <- paste0(names(dmat.convolve)[r], "_", regName, ".1D")
-                        toWrite <- plyr::round_any(dmat.convolve[[r]][[v]], .000001)
-                        conv_concat[[regName]] <<- c(conv_concat[[regName]], toWrite) #add for concatenated 1D file
-                        write.table(toWrite, file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
-                      })              
-                })
-
-            #write run-concatenated convolved regressors (for use in AFNI)
-            lapply(1:length(conv_concat), function(v) {
-                  fname <- paste0(names(conv_concat)[v], "_concat.1D")
-                  write.table(conv_concat[[v]], file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
-                })
-            
           }
           
           collinearityDiag.raw <- apply(dmat, 1, function(run) {
