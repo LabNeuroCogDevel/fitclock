@@ -436,7 +436,9 @@ clock_fit <- setRefClass(
                   write.table(dmat[[run,reg]], file=file.path(output_directory, fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
                 }
               }
-            } else if ("AFNI" %in% writeTimingFiles) {
+            }
+
+            if ("AFNI" %in% writeTimingFiles) {
               #use dmBLOCK-style regressors: time*modulation:duration
               for (reg in 1:dim(dmat)[2L]) {
                 regMat <- c()
