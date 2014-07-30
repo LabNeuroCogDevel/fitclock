@@ -368,7 +368,7 @@ clock_fit <- setRefClass(
                   reg <- RTobs #parametric regressor for overall reaction time (from Badre)
                 } else {
                   message("Assuming that ", regressors[r], " is a task indicator function.")
-                  reg <- matrix(1.0, dim(RTobs)) #standard task indicator regressor
+                  reg <- array(1.0, dim=dim(RTobs)) #standard task indicator regressor
                 }
                 
                 #replace missing values with 0 for clarity in convolution
@@ -385,21 +385,23 @@ clock_fit <- setRefClass(
                   times <- clock_onset + RTobs/1000
                 }
                 
-                if (durations[r] == "rt") {
-                  durations <- RTobs/1000
+                if (durations[r] %in% c("rt", "clock_duration")) { #time of clock on screen
+                  durmat <- RTobs/1000
                 } else if (durations[r] == "feedback_duration") {
-                  durations <- iti_onset - feedback_onset
+                  durmat <- iti_onset - feedback_onset
                 } else if (durations[r] == "iti_duration") {
                   #need to lag clock matrix: iti duration is: clock_onset(t+1) - iti_onset(t)
                   #lag_clock <- apply(clock_onset)
                 } else if (!is.na(suppressWarnings(as.numeric(durations[r])))) {
                   #user-specified scalar duration (not currently supporting a user-specified per-regressor vector of durations) 
-                  durations <- matrix(as.numeric(durations[r]), dim(RTobs))
+                  durmat <- array(as.numeric(durations[r]), dim=dim(RTobs))
+                } else {
+                  stop("Unknown duration keyword:", durations[r])
                 }
                 
                 #fsl-style 3-column format: onset duration value
                 output <- lapply(1:nrow(reg), function(run) {
-                      cbind(onset=times[run,], duration=durations[run,], value=reg[run,])
+                      cbind(onset=times[run,], duration=durmat[run,], value=reg[run,])
                     })
                 
                 names(output) <- paste0("run", 1:nrow(reg))
