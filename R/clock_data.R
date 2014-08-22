@@ -323,6 +323,7 @@ clock_fit <- setRefClass(
             durations=NULL,
             baselineCoefOrder=-1L,
             runVolumes=NULL, #vector of total fMRI volumes for each run (used for convolved regressors)
+            runsToOutput=NULL,
             plot=TRUE,
             writeTimingFiles=NULL,
             output_directory="run_timing") {
@@ -345,8 +346,14 @@ clock_fit <- setRefClass(
             message("Assuming that last fMRI volume was 12 seconds after the onset of the last ITI.")
             message(paste0("Resulting lengths: ", paste(last_fmri_volume, collapse=", ")))
           } else {
-            if (length(runVolumes) != nrow(RTobs)) { stop("Length of runVolumes is ", length(runVolumes), ", but number of runs in fit object is ", nrow(RTobs)) }
+            if (length(runVolumes) != nrow(.self$RTraw)) { stop("Length of runVolumes is ", length(runVolumes), ", but number of runs in fit object is ", nrow(.self$RTraw)) }
             last_fmri_volume <- runVolumes
+          }
+          
+          #determine which run fits should be output for fmri analysis
+          if (is.null(runsToOutput)) {
+            message("Assuming that all runs should be fit and run numbers are sequential ascending")
+            runsToOutput <- 1:length(last_fmri_volume)
           }
           
           #build design matrix in the order specified
@@ -365,10 +372,10 @@ clock_fit <- setRefClass(
                 } else if (regressors[r] == "rpe_neg") {
                   reg <- apply(rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
                 } else if (regressors[r] == "rt") {
-                  reg <- RTobs #parametric regressor for overall reaction time (from Badre)
+                  reg <- .self$RTraw #parametric regressor for overall reaction time (from Badre)
                 } else {
                   message("Assuming that ", regressors[r], " is a task indicator function.")
-                  reg <- array(1.0, dim=dim(RTobs)) #standard task indicator regressor
+                  reg <- array(1.0, dim=dim(.self$RTraw)) #standard task indicator regressor
                 }
                 
                 #replace missing values with 0 for clarity in convolution
@@ -382,11 +389,11 @@ clock_fit <- setRefClass(
                 } else if (event_onsets[r] == "iti_onset") {
                   times <- iti_onset
                 } else if (event_onsets[r] == "rt") {
-                  times <- clock_onset + RTobs/1000
+                  times <- clock_onset + .self$RTraw/1000
                 }
                 
                 if (durations[r] %in% c("rt", "clock_duration")) { #time of clock on screen
-                  durmat <- RTobs/1000
+                  durmat <- .self$RTraw/1000
                 } else if (durations[r] == "feedback_duration") {
                   durmat <- iti_onset - feedback_onset
                 } else if (durations[r] == "iti_duration") {
@@ -394,7 +401,7 @@ clock_fit <- setRefClass(
                   #lag_clock <- apply(clock_onset)
                 } else if (!is.na(suppressWarnings(as.numeric(durations[r])))) {
                   #user-specified scalar duration (not currently supporting a user-specified per-regressor vector of durations) 
-                  durmat <- array(as.numeric(durations[r]), dim=dim(RTobs))
+                  durmat <- array(as.numeric(durations[r]), dim=dim(.self$RTraw))
                 } else {
                   stop("Unknown duration keyword:", durations[r])
                 }
@@ -411,29 +418,31 @@ clock_fit <- setRefClass(
           
           dimnames(dmat)[[2L]] <- regressors
           
+          #only retain runs to be analyzed
+          dmat <- dmat[runsToOutput,] 
           
           #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
           #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
-          
+
           #create an HRF-convolved version of the list
-          dmat.convolve <- lapply(1:dim(dmat)[1L], function(run) {
-                run.convolve <- lapply(dmat[run,], function(reg) {
-                      fmri.stimulus(scans=last_fmri_volume[run], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now      
+          dmat.convolve <- lapply(1:dim(dmat)[1L], function(i) {
+                run.convolve <- lapply(dmat[i,], function(reg) {
+                      fmri.stimulus(scans=last_fmri_volume[ runsToOutput[i] ], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now      
                     })
                 do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
               })
           
           #dmat.convolve should now be a 1-d runs list where each element is a data.frame of convolved regressors.
-          names(dmat.convolve) <- paste0("run", 1:length(dmat.convolve))
+          names(dmat.convolve) <- paste0("run", runsToOutput)
           
           #Write timing files to disk for analysis by AFNI, FSL, etc.
           if (!is.null(writeTimingFiles)) {
             dir.create(output_directory, recursive=TRUE, showWarnings=FALSE)
             if ("FSL" %in% writeTimingFiles) {
-              for (run in 1:dim(dmat)[1L]) {
+              for (i in 1:dim(dmat)[1L]) {
                 for (reg in 1:dim(dmat)[2L]) {
-                  fname <- paste0("run", run, "_", dimnames(dmat)[[2L]][reg], "_FSL3col.txt")
-                  write.table(dmat[[run,reg]], file=file.path(output_directory, fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
+                  fname <- paste0("run", runsToOutput[i], "_", dimnames(dmat)[[2L]][reg], "_FSL3col.txt")
+                  write.table(dmat[[i,reg]], file=file.path(output_directory, fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
                 }
               }
             }
@@ -442,8 +451,8 @@ clock_fit <- setRefClass(
               #use dmBLOCK-style regressors: time*modulation:duration
               for (reg in 1:dim(dmat)[2L]) {
                 regMat <- c()
-                for (run in 1:dim(dmat)[1L]) {
-                  dmStr <- apply(dmat[[run,reg]], 1, function(row) {
+                for (i in 1:dim(dmat)[1L]) {
+                  dmStr <- apply(dmat[[i,reg]], 1, function(row) {
                         row <- plyr::round_any(row, .000001) #keep precision reasonable for output format 
                         paste0(row["onset"], "*", row["value"], ":", row["duration"])
                       })

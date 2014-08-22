@@ -22,3 +22,4 @@ Depends:
     fmri,
     car,
     Hmisc
+ByteCompile: yes
