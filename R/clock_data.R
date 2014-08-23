@@ -346,7 +346,7 @@ clock_fit <- setRefClass(
             message("Assuming that last fMRI volume was 12 seconds after the onset of the last ITI.")
             message(paste0("Resulting lengths: ", paste(last_fmri_volume, collapse=", ")))
           } else {
-            if (length(runVolumes) != nrow(.self$RTraw)) { stop("Length of runVolumes is ", length(runVolumes), ", but number of runs in fit object is ", nrow(.self$RTraw)) }
+            if (length(runVolumes) != nrow(.self$RTraw)) { warning("Length of runVolumes is ", length(runVolumes), ", but number of runs in fit object is ", nrow(.self$RTraw)) }
             last_fmri_volume <- runVolumes
           }
           
@@ -420,14 +420,14 @@ clock_fit <- setRefClass(
           
           #only retain runs to be analyzed
           dmat <- dmat[runsToOutput,] 
-          
+
           #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
           #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
 
           #create an HRF-convolved version of the list
           dmat.convolve <- lapply(1:dim(dmat)[1L], function(i) {
-                run.convolve <- lapply(dmat[i,], function(reg) {
-                      fmri.stimulus(scans=last_fmri_volume[ runsToOutput[i] ], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now      
+                run.convolve <- lapply(dmat[i,], function(reg) {                    
+                    fmri.stimulus(scans=last_fmri_volume[i], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now      
                     })
                 do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
               })
