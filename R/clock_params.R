@@ -606,7 +606,7 @@ reset_workspace <- function(obj) { UseMethod("reset_workspace") }
 #'
 #' @param obj the parameter object whose workspace will be reset.   
 #' @method reset_workspace param
-#' @S3method reset_workspace param
+#' @export reset_workspace.param
 
 #no real advantage to allocating these in advance since RT contribution of parameters only need to be computed after parameter optimization 
 #N.B., should probably set pred_contrib name based on class name of param, not the lapply on the parameter name/names themselves
@@ -620,7 +620,7 @@ reset_workspace.param <- function(obj) { NULL }
 #'
 #' @param obj the parameter object whose workspace will be reset.
 #' @method reset_workspace p_go
-#' @S3method reset_workspace p_go
+#' @export reset_workspace.p_go
 reset_workspace.p_go <- function(obj) {
   obj$w$Go <- rep(NA_real_, obj$w$ntrials) #vector of Go term
   obj$w$Go[1L] <- 0.0 #may want to override this later...
@@ -633,7 +633,7 @@ reset_workspace.p_go <- function(obj) {
 #' 
 #' @param obj the parameter object whose workspace will be reset.
 #' @method reset_workspace p_nogo
-#' @S3method reset_workspace p_nogo
+#' @export reset_workspace.p_nogo
 reset_workspace.p_nogo <- function(obj) {
   obj$w$NoGo <- rep(NA_real_, obj$w$ntrials) #vector of NoGo term
   obj$w$NoGo[1L] <- 0.0 #may want to override this later...
@@ -646,7 +646,7 @@ reset_workspace.p_nogo <- function(obj) {
 #' 
 #' @param obj the parameter object whose workspace will be reset.
 #' @method reset_workspace p_stickyChoice
-#' @S3method reset_workspace p_stickyChoice
+#' @export reset_workspace.p_stickyChoice
 reset_workspace.p_stickyChoice <- function(obj) {
   obj$w$sticky <- 0
   NextMethod()
@@ -659,7 +659,7 @@ reset_workspace.p_stickyChoice <- function(obj) {
 #' 
 #' @param obj the parameter object whose workspace will be reset.
 #' @method reset_workspace p_gold
-#' @S3method reset_workspace p_gold
+#' @export reset_workspace.p_gold
 reset_workspace.p_gold <- function(obj) {
   #After shared workspace (w) address is passed in, setup expectation on bestRT for first trial
   obj$w$bestRT  <- rep(NA_real_, obj$w$ntrials) #initialize empty bestRT vector
@@ -680,7 +680,7 @@ reset_workspace.p_gold <- function(obj) {
 #' 
 #' @param obj the parameter object whose workspace will be reset.
 #' @method reset_workspace p_meanSlowFast
-#' @S3method reset_workspace p_meanSlowFast
+#' @export reset_workspace.p_meanSlowFast
 reset_workspace.p_meanSlowFast=function(obj) {
   if (!exists("betaFastSlow", envir=obj$w, inherits=FALSE)) { obj$w$betaFastSlow <- betaFastSlow(obj$w) }
   NextMethod()
@@ -692,7 +692,7 @@ reset_workspace.p_meanSlowFast=function(obj) {
 #' 
 #' @param obj the parameter object whose workspace will be reset.
 #' @method reset_workspace p_epsilonBeta
-#' @S3method reset_workspace p_epsilonBeta
+#' @export reset_workspace.p_epsilonBeta
 reset_workspace.p_epsilonBeta=function(obj) {
   if (!exists("betaFastSlow", envir=obj$w, inherits=FALSE)) { obj$w$betaFastSlow <- betaFastSlow(obj$w) }
   NextMethod()
