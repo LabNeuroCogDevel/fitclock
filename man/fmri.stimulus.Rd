@@ -11,5 +11,4 @@ fmri.stimulus(scans = 1, onsets = c(1), durations = c(1), values = c(1),
 extended from fmri package to allow for continuous-valued regressor,
 which is passed using the values parameter.
 }
-\keyword{internal}
 

@@ -7,13 +7,15 @@
 
 #abstract build_design_matrix function from clock_fit object to allow for more rapid tweaks without re-fitting data.
 #' Create fmri design matrix for AFNI, FSL, or internal convolved design.
-#' 
+#'
+#' @importFrom data.table as.data.table 
 #' @export
 build_design_matrix=function(
     fitobj=NULL,
     regressors=NULL,
     event_onsets=NULL,
     durations=NULL,
+    normalizations=NULL, #normalization of HRF
     baselineCoefOrder=-1L,
     runVolumes=NULL, #vector of total fMRI volumes for each run (used for convolved regressors)
     runsToOutput=NULL,
@@ -59,11 +61,11 @@ build_design_matrix=function(
         } else if (regressors[r] == "mean_uncertainty") {
           reg <- abs(bfs_var_fast + bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
         } else if (regressors[r] == "ev") {
-          reg <- ev #expected value
+          reg <- fitobj$ev #expected value
         } else if (regressors[r] == "rpe_pos") {
-          reg <- apply(rpe, c(1,2), function(x) { if (x > 0) x else 0 }) #positive prediction error
+          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) x else 0 }) #positive prediction error
         } else if (regressors[r] == "rpe_neg") {
-          reg <- apply(rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
+          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
         } else if (regressors[r] == "rt") {
           reg <- fitobj$RTraw #parametric regressor for overall reaction time (from Badre)
         } else {
@@ -76,19 +78,19 @@ build_design_matrix=function(
         
         #determine onset times for events
         if (event_onsets[r] == "clock_onset") {
-          times <- clock_onset
+          times <- fitobj$clock_onset
         } else if (event_onsets[r] == "feedback_onset") {
-          times <- feedback_onset
+          times <- fitobj$feedback_onset
         } else if (event_onsets[r] == "iti_onset") {
-          times <- iti_onset
+          times <- fitobj$iti_onset
         } else if (event_onsets[r] == "rt") {
-          times <- clock_onset + fitobj$RTraw/1000
+          times <- fitobj$clock_onset + fitobj$RTraw/1000
         }
         
         if (durations[r] %in% c("rt", "clock_duration")) { #time of clock on screen
           durmat <- fitobj$RTraw/1000
         } else if (durations[r] == "feedback_duration") {
-          durmat <- iti_onset - feedback_onset
+          durmat <- fitobj$iti_onset - fitobj$feedback_onset
         } else if (durations[r] == "iti_duration") {
           #need to lag clock matrix: iti duration is: clock_onset(t+1) - iti_onset(t)
           #lag_clock <- apply(clock_onset)
@@ -99,11 +101,12 @@ build_design_matrix=function(
           stop("Unknown duration keyword:", durations[r])
         }
         
+        
         #fsl-style 3-column format: onset duration value
         output <- lapply(1:nrow(reg), function(run) {
               cbind(onset=times[run,], duration=durmat[run,], value=reg[run,])
             })
-        
+
         names(output) <- paste0("run", 1:nrow(reg))
         
         return(output)
@@ -113,17 +116,52 @@ build_design_matrix=function(
   
   #only retain runs to be analyzed
   dmat <- dmat[runsToOutput,] 
-  
+
   #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
   #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
   
   #create an HRF-convolved version of the list
   dmat.convolve <- lapply(1:dim(dmat)[1L], function(i) {
-        run.convolve <- lapply(dmat[i,], function(reg) {                    
-              fmri.stimulus(scans=last_fmri_volume[i], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now      
+        run.convolve <- lapply(1:dim(dmat)[2L], function(j) {
+              reg <- dmat[[i,j]] #regressor j for a given run i
+              #check for the possibility that the onset + event duration exceeds the number of good volumes in the run (e.g., if truncated for high movement) 
+              if (any(whichHigh <- (reg[,"onset"] + reg[,"duration"]) > last_fmri_volume[i])) {
+                reg <- reg[!whichHigh,]
+              }
+              
+              #see hrf_convolve_normalize for implementation details
+              if (normalizations[j] == "evtmax_1.0") {
+                #each event is 1.0-normalized
+                hrf_convolve_normalize(scans=last_fmri_volume[i], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0, normeach=TRUE)
+              } else if (normalizations[j] == "durmax_1.0") {
+                #peak amplitude of hrf is 1.0 (before multiplying by parametric value) based on stimulus duration (stims > 10s approach 1.0)
+                hrf_convolve_normalize(scans=last_fmri_volume[i], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0, normeach=FALSE)
+              } else {
+                #no normalization
+                fmri.stimulus(scans=last_fmri_volume[i], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now
+              } 
+              
             })
-        do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
+
+        df <- do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
+        names(df) <- dimnames(dmat)[[2L]]
+        return(df)
       })
+ 
+#  quick code to test that the design matrix regressors are sensible in their heights and (de)correlation with each other after convolution. 
+#  In particular, verify that zero is not being treated as an "event" by the parametric convolution after mean centering     
+#  browser()
+#  dm1 <- dmat[1,]
+#  dcon1 <- dmat.convolve[[1]]
+#  dcon1$time <- 1:nrow(dcon1)
+#  cor(dcon1)
+#  m <- melt(dcon1, id.vars="time")
+#  ggplot(m, aes(x=time, y=value)) + geom_line() + facet_grid(variable~., scales="free_y")
+#  lapply(dcon1, range)
+#  lapply(dm1, function(reg) range(reg[,"value"]))
+#  vtest <- dm1$rpe_pos[,"value"]
+#  vtest <- vtest[vtest != 0.0]
+#  vtest - mean(vtest)
   
   #dmat.convolve should now be a 1-d runs list where each element is a data.frame of convolved regressors.
   names(dmat.convolve) <- paste0("run", runsToOutput)
@@ -141,19 +179,82 @@ build_design_matrix=function(
     }
     
     if ("AFNI" %in% writeTimingFiles) {
-      #use dmBLOCK-style regressors: time*modulation:duration
-      for (reg in 1:dim(dmat)[2L]) {
-        regMat <- c()
-        for (i in 1:dim(dmat)[1L]) {
-          dmStr <- apply(dmat[[i,reg]], 1, function(row) {
-                row <- plyr::round_any(row, .000001) #keep precision reasonable for output format 
-                paste0(row["onset"], "*", row["value"], ":", row["duration"])
-              })
-          regMat <- rbind(regMat, dmStr)                  
-        }
-        fname <- paste0(dimnames(dmat)[[2L]][reg], "_dmBLOCK.txt")
-        write.table(regMat, file=file.path(output_directory, fname), sep="\t", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
-      }
+      #use dmBLOCK-style regressors: time*modulation:duration. One line per run
+      
+      #need to unify multiple values that share onset time
+      #time*modulation1,modulation2:duration
+      regonsets <- apply(dmat, 2, function(reg) {
+            unname(do.call(c, lapply(reg, function(run) { run[,"onset"]})))
+          })
+      
+      regdurations <- apply(dmat, 2, function(reg) {
+            unname(do.call(c, lapply(reg, function(run) { run[,"duration"]})))
+          })
+      
+      #my code (longer than data.table)
+#      combcols <- list()
+#      colstomatch <- 1:ncol(regonsets)
+#      while(length(colstomatch) > 0L) {
+#        matches <- colstomatch[1L] #always match self
+#        if (length(colstomatch) > 1L) {
+#          for (coltest in colstomatch[2:length(colstomatch)]) {
+#            if (identical(regonsets[,matches[1L]], regonsets[,coltest])) {
+#              matches <- c(matches, coltest)
+#            }
+#          }
+#        }
+#        combcols[[paste(matches, collapse=".")]] <- matches
+#        colstomatch <- colstomatch[-1*which(colstomatch %in% matches)]
+#      }
+      
+      #magical code from here: http://stackoverflow.com/questions/22993637/efficient-r-code-for-finding-indices-associated-with-unique-values-in-vector
+      first_onset_duration <- paste(regonsets[1,], regdurations[1,]) #use combination of onset and duration to determine unique dmBLOCK regressors
+      dt = as.data.table(first_onset_duration)[, list(comb=list(.I)), by=first_onset_duration] #just matches on first row (should work in general)
+      
+#      dmat_combineonsets <- as.data.frame(lapply(dt$V1, function(comb) {
+#                vec <- dmat[,comb[1L], drop=F] #use original multidimensional list
+#                colnames(vec) <- paste(colnames(regonsets)[comb], collapse=".")
+#                vec            
+#              }))
+      
+      lapply(dt$comb, function(comb) {
+            combmat <- dmat[,comb, drop=F]
+            #onsets and durations are constant, amplitudes vary
+            runvec <- c() #character vector of AFNI runs (one row per run)
+            for (i in 1:dim(combmat)[1L]) {
+              runonsets <- combmat[[i,1]][,"onset"] #just use first regressor of combo to get onsets and durations
+              rundurations <- combmat[[i,1]][,"duration"]
+              rundurations <- do.call(cbind, lapply(combmat[i,], function(reg) { reg[,"duration"] }))
+              runvalues <- do.call(cbind, lapply(combmat[i,], function(reg) { reg[,"value"] }))
+              
+              #AFNI doesn't like us if we pass in the boxcar ourselves. Filter out.
+              indicatorFunc <- apply(runvalues, 2, function(col) { all(col == 1.0)} )
+              if (any(indicatorFunc)) {
+                runvalues <- runvalues[,-1*which(indicatorFunc), drop=FALSE]
+              }
+              
+              runvec[i] <- paste(sapply(1:length(runonsets), function(j) { 
+                        paste0(plyr::round_any(runonsets[j], .000001), "*", paste(plyr::round_any(runvalues[j,], .000001), collapse=","), ":", plyr::round_any(rundurations[j], .00001))
+                      }), collapse=" ")
+            }
+            
+            writeLines(runvec, file.path(output_directory, paste0(paste(dimnames(combmat)[[2L]], collapse="_"), "_dmBLOCK.txt")))
+          })
+      
+      #old code that assumed one dmBLOCK file per regressor.
+      #new code above incorporates knowledge that some regressors are temporally synchronous, which is necessary for AFNI to handle dmBLOCK matrices properly
+      #for (reg in 1:dim(dmat)[2L]) {
+      #  regMat <- c()
+      #  for (i in 1:dim(dmat)[1L]) {
+      #    dmStr <- apply(dmat[[i,reg]], 1, function(row) {
+      #          row <- plyr::round_any(row, .000001) #keep precision reasonable for output format 
+      #          paste0(row["onset"], "*", row["value"], ":", row["duration"])
+      #        })
+      #    regMat <- rbind(regMat, dmStr)                  
+      #  }
+      #  fname <- paste0(dimnames(dmat)[[2L]][reg], "_dmBLOCK.txt")
+      #  write.table(regMat, file=file.path(output_directory, fname), sep="\t", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+      #}
       
       #write convolved regressors
       #AFNI amplitude modulation forces a mean and deviation from the mean regressor for each effect
@@ -511,7 +612,7 @@ clock_fit <- setRefClass(
           if (length(run_condition)==0L) { run_condition <<- do.call(c, lapply(clock_data$runs, function(r) { r$run_condition })) }
           if (length(ev)==0L) { ev <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$V })) } #expected value
           if (length(rpe)==0L) { rpe <<- Reward - ev } #better or worse than expected?
-            
+          
           #get a list prediction contributions of each parameter per run: each element is a params x trials matrix
           if (length(pred_contrib)==0L) { 
             pred_contrib <<- lapply(clock_data$runs, function(r) { 
@@ -520,7 +621,7 @@ clock_fit <- setRefClass(
           }
           #flatten this? 
           #arr_pred_contrib <- do.call(abind, list(along=0, pred_contrib))
-            
+          
           if (exists("betaFastSlow", envir=clock_data$runs[[1L]]$w, inherits=FALSE)) {
             hasBeta <- TRUE
             bfs_var_fast <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_fast })) #trialwise estimate of uncertainty re: fast responses

@@ -1,8 +1,61 @@
+#' convolve a regressor with a normalized HRF with peak amplitude = 1.0
+#' 
+#' extends fmri.stimulus by allowing for two normalization approaches (building on AFNI dmUBLOCK):
+#'   1) pre-convolution HRF max=1.0 normalization of each stimulus regardless of duration: identical to dmUBLOCK(1)
+#'   2) pre-convolution HRF max=1.0 normalization for long events (15+ sec) -- height of HRF is modulated by duration of event: identical to dmUBLOCK(0)
+#' @export
+hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, normeach=FALSE, rmzeros=TRUE,
+    demean_events=TRUE, demean_convolved=FALSE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
+  
+  #this is my hacky way to figure out the peak value 
+  #obtain an estimate of the peak HRF height of a long event convolved with the HRF at these settings of a1, b1, etc.
+  hrf_boxcar <- fmri.stimulus(scans=300, values=1.0, times=100, durations=100, rt=1.0, mean=FALSE,  #don't mean center for computing max height 
+      a1=a1, a2=a2, b1=b1, b2=b2, cc=cc)
+  hrf_max <- max(hrf_boxcar)
+  
+  #remove zeros from events vector to avoid these becoming non-zero values in the hrf convolution after grand mean centering
+  #for example, for negative RPEs, if one does not occur, it will have a value of zero. But after grand mean centering below, this
+  #will now be treated as an "event" by the HRF convolution since the amplitude is no longer zero.
+  if (rmzeros) {
+    zeros <- which(values==0.0)
+    if (length(zeros) > 0L) {
+      times <- times[-1.0*zeros]
+      values <- values[-1.0*zeros]
+      durations <- durations[-1.0*zeros]
+    }
+  }
+  
+  #demean parametric regressor (good idea to remove collinearity)
+  if (demean_events && !all(values==1.0)) {
+    values <- values - mean(values)
+  }
+  
+  #for each event, convolve it with hrf, normalize, then sum convolved events to get full timecourse
+  normedEvents <- sapply(1:length(times), function(i) {
+        #obtain unit-convolved duration-modulated regressor to define HRF prior to modulation by parametric regressor
+        stim_conv <- fmri.stimulus(scans=scans, values=1.0, times=times[i], durations=durations[i], rt=rt, mean=FALSE, a1=a1, a2=a2, b1=b1, b2=b2, cc=cc)
+        if (normeach) {
+          stim_conv <- stim_conv/max(stim_conv) #rescale HRF to a max of 1.0 for each event, regardless of duration -- EQUIVALENT TO dmUBLOCK(1)
+        } else {
+          stim_conv <- stim_conv/hrf_max #rescale HRF to a max of 1.0 for long event -- EQUIVALENT TO dmUBLOCK(0)
+        }
+        
+        stim_conv <- stim_conv*values[i] #for each event, multiply by parametric regressor value
+      })
+  
+  tc_conv <- apply(normedEvents, 1, sum)
+  
+  #grand mean center convolved regressor
+  if (demean_convolved) { tc_conv <- tc_conv - mean(tc_conv) }
+  
+  tc_conv
+}
+
 #' convolve a regressor with a hemodynamic response function for fMRI analysis.
 #' 
 #' extended from fmri package to allow for continuous-valued regressor,
 #' which is passed using the values parameter.
-#' @keywords internal
+#' @export
 fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1),
     rt=3, times=NULL, mean=TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
   

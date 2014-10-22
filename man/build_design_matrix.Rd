@@ -4,9 +4,9 @@
 \title{Create fmri design matrix for AFNI, FSL, or internal convolved design.}
 \usage{
 build_design_matrix(fitobj = NULL, regressors = NULL, event_onsets = NULL,
-  durations = NULL, baselineCoefOrder = -1L, runVolumes = NULL,
-  runsToOutput = NULL, plot = TRUE, writeTimingFiles = NULL,
-  output_directory = "run_timing")
+  durations = NULL, normalizations = NULL, baselineCoefOrder = -1L,
+  runVolumes = NULL, runsToOutput = NULL, plot = TRUE,
+  writeTimingFiles = NULL, output_directory = "run_timing")
 }
 \description{
 Create fmri design matrix for AFNI, FSL, or internal convolved design.
