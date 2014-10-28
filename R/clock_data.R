@@ -9,6 +9,7 @@
 #' Create fmri design matrix for AFNI, FSL, or internal convolved design.
 #'
 #' @importFrom data.table as.data.table 
+#' @importFrom orthopolynom legendre.polynomials polynomial.values
 #' @export
 build_design_matrix=function(
     fitobj=NULL,
@@ -17,6 +18,7 @@ build_design_matrix=function(
     durations=NULL,
     normalizations=NULL, #normalization of HRF
     baselineCoefOrder=-1L,
+    baselineParameterization="Legendre",
     runVolumes=NULL, #vector of total fMRI volumes for each run (used for convolved regressors)
     runsToOutput=NULL,
     plot=TRUE,
@@ -29,6 +31,10 @@ build_design_matrix=function(
   
   if (length(unique(sapply(list(regressors, event_onsets, durations), length))) != 1L) { 
     stop("regressors, event_onsets, and durations must have the same length") 
+  }
+  
+  if (is.null(normalizations)) {
+    normalizations <- rep("none", length(regressors))
   }
   
   #require(fmri)
@@ -57,9 +63,9 @@ build_design_matrix=function(
         #regressor values
         if (regressors[r] == "rel_uncertainty") {
           #trialwise relative uncertainty about fast versus slow responses: subtract variances 
-          reg <- abs(bfs_var_fast - bfs_var_slow)
+          reg <- abs(fitobj$bfs_var_fast - fitobj$bfs_var_slow)
         } else if (regressors[r] == "mean_uncertainty") {
-          reg <- abs(bfs_var_fast + bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
+          reg <- abs(fitobj$bfs_var_fast + fitobj$bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
         } else if (regressors[r] == "ev") {
           reg <- fitobj$ev #expected value
         } else if (regressors[r] == "rpe_pos") {
@@ -116,7 +122,7 @@ build_design_matrix=function(
   
   #only retain runs to be analyzed
   dmat <- dmat[runsToOutput,] 
-
+  
   #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
   #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
   
@@ -210,13 +216,7 @@ build_design_matrix=function(
       #magical code from here: http://stackoverflow.com/questions/22993637/efficient-r-code-for-finding-indices-associated-with-unique-values-in-vector
       first_onset_duration <- paste(regonsets[1,], regdurations[1,]) #use combination of onset and duration to determine unique dmBLOCK regressors
       dt = as.data.table(first_onset_duration)[, list(comb=list(.I)), by=first_onset_duration] #just matches on first row (should work in general)
-      
-#      dmat_combineonsets <- as.data.frame(lapply(dt$V1, function(comb) {
-#                vec <- dmat[,comb[1L], drop=F] #use original multidimensional list
-#                colnames(vec) <- paste(colnames(regonsets)[comb], collapse=".")
-#                vec            
-#              }))
-      
+           
       lapply(dt$comb, function(comb) {
             combmat <- dmat[,comb, drop=F]
             #onsets and durations are constant, amplitudes vary
@@ -241,20 +241,6 @@ build_design_matrix=function(
             writeLines(runvec, file.path(output_directory, paste0(paste(dimnames(combmat)[[2L]], collapse="_"), "_dmBLOCK.txt")))
           })
       
-      #old code that assumed one dmBLOCK file per regressor.
-      #new code above incorporates knowledge that some regressors are temporally synchronous, which is necessary for AFNI to handle dmBLOCK matrices properly
-      #for (reg in 1:dim(dmat)[2L]) {
-      #  regMat <- c()
-      #  for (i in 1:dim(dmat)[1L]) {
-      #    dmStr <- apply(dmat[[i,reg]], 1, function(row) {
-      #          row <- plyr::round_any(row, .000001) #keep precision reasonable for output format 
-      #          paste0(row["onset"], "*", row["value"], ":", row["duration"])
-      #        })
-      #    regMat <- rbind(regMat, dmStr)                  
-      #  }
-      #  fname <- paste0(dimnames(dmat)[[2L]][reg], "_dmBLOCK.txt")
-      #  write.table(regMat, file=file.path(output_directory, fname), sep="\t", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
-      #}
       
       #write convolved regressors
       #AFNI amplitude modulation forces a mean and deviation from the mean regressor for each effect
@@ -305,8 +291,22 @@ build_design_matrix=function(
   if (baselineCoefOrder > -1L) {
     dmat.convolve <- lapply(dmat.convolve, function(r) {
           n <- names(r)
-          d <- data.frame(fmri.design(r, order=2))
-          names(d) <- c(n, paste0("base", 0:baselineCoefOrder))
+          if (baselineParameterization == "Legendre") {
+            #consistent with AFNI approach, use Legendre polynomials, which are centered at zero to allow for appropriate baseline 
+            unnormalized.p.list <- legendre.polynomials( baselineCoefOrder, normalized=FALSE )
+            #evaluate polynomial between -1 and 1, which is where its desirable centered behavior exists.
+            #although the functions are centered at 0, evaluating them on a given grid may lead to slight deviations from mean=0. Thus, center perfectly.
+            baseline <- polynomial.values(polynomials=unnormalized.p.list, x=seq(-1,1, length.out=nrow(r)))
+            baseline[2:length(baseline)] <- lapply(baseline[2:length(baseline)], function(v) { v - mean(v) }) #don't center constant!
+            
+            names(baseline) <- paste0("base", 0:baselineCoefOrder)
+            d <- cbind(r, baseline)
+          } else {
+            #compute polynomials that are orthogonal to design effects
+            #this may be somewhat dubious. for example, a linear trend in a task regressor would be preserved because 
+            d <- data.frame(fmri.design(r, order=baselineCoefOrder))
+            names(d) <- c(n, paste0("base", 0:baselineCoefOrder))
+          }          
           d
         })
     

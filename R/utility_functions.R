@@ -25,6 +25,11 @@ hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, norm
     }
   }
   
+  if (length(times) == 0L) {
+    warning("No non-zero events for regressor to be convolved. Returning all-zero result for fMRI GLM.")
+    return(rep(0, scans))
+  }
+  
   #demean parametric regressor (good idea to remove collinearity)
   if (demean_events && !all(values==1.0)) {
     values <- values - mean(values)
