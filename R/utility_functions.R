@@ -4,19 +4,23 @@
 #'   1) pre-convolution HRF max=1.0 normalization of each stimulus regardless of duration: identical to dmUBLOCK(1)
 #'   2) pre-convolution HRF max=1.0 normalization for long events (15+ sec) -- height of HRF is modulated by duration of event: identical to dmUBLOCK(0)
 #' @export
-hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, normeach=FALSE, rmzeros=TRUE,
-    demean_events=TRUE, demean_convolved=FALSE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
+hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, normeach=FALSE, rm_zeros=TRUE,
+    center_values=TRUE, demean_convolved=FALSE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
   
   #this is my hacky way to figure out the peak value 
   #obtain an estimate of the peak HRF height of a long event convolved with the HRF at these settings of a1, b1, etc.
-  hrf_boxcar <- fmri.stimulus(scans=300, values=1.0, times=100, durations=100, rt=1.0, mean=FALSE,  #don't mean center for computing max height 
+  hrf_boxcar <- fmri.stimulus(scans=300, values=1.0, times=100, durations=100, rt=rt, demean=FALSE,  #don't mean center for computing max height 
       a1=a1, a2=a2, b1=b1, b2=b2, cc=cc)
   hrf_max <- max(hrf_boxcar)
+  
+  #N.B. this code is duplicated below in fmri.stimulus to allow the core convolution function to mean-center parametric regressors
+  #without any form of height normalization, as implemented here. may be able to reduce this code here, but because each even receives
+  #a unique convolution in the code below, would need to maintain centering at least.  
   
   #remove zeros from events vector to avoid these becoming non-zero values in the hrf convolution after grand mean centering
   #for example, for negative RPEs, if one does not occur, it will have a value of zero. But after grand mean centering below, this
   #will now be treated as an "event" by the HRF convolution since the amplitude is no longer zero.
-  if (rmzeros) {
+  if (rm_zeros) {
     zeros <- which(values==0.0)
     if (length(zeros) > 0L) {
       times <- times[-1.0*zeros]
@@ -30,15 +34,17 @@ hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, norm
     return(rep(0, scans))
   }
   
-  #demean parametric regressor (good idea to remove collinearity)
-  if (demean_events && !all(values==1.0)) {
+  #handle mean centering of parametric values prior to convolution
+  #this is useful when one wishes to dissociate variance due to parametric modulation versus stimulus occurrence
+  if (center_values && !all(values==1.0)) {
     values <- values - mean(values)
   }
   
+    
   #for each event, convolve it with hrf, normalize, then sum convolved events to get full timecourse
   normedEvents <- sapply(1:length(times), function(i) {
         #obtain unit-convolved duration-modulated regressor to define HRF prior to modulation by parametric regressor
-        stim_conv <- fmri.stimulus(scans=scans, values=1.0, times=times[i], durations=durations[i], rt=rt, mean=FALSE, a1=a1, a2=a2, b1=b1, b2=b2, cc=cc)
+        stim_conv <- fmri.stimulus(scans=scans, values=1.0, times=times[i], durations=durations[i], rt=rt, demean=FALSE, center_values=FALSE, a1=a1, a2=a2, b1=b1, b2=b2, cc=cc)
         if (normeach) {
           stim_conv <- stim_conv/max(stim_conv) #rescale HRF to a max of 1.0 for each event, regardless of duration -- EQUIVALENT TO dmUBLOCK(1)
         } else {
@@ -60,9 +66,12 @@ hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, norm
 #' 
 #' extended from fmri package to allow for continuous-valued regressor,
 #' which is passed using the values parameter.
+#' also support mean centering of parametric regressor prior to convolution 
+#' to dissociate it from stimulus occurrence (when event regressor also in model)
+#' 
 #' @export
-fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1),
-    rt=3, times=NULL, mean=TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
+fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1), center_values=FALSE, rm_zeros=TRUE,
+    rt=3, times=NULL, demean=TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
   
   mygamma <- function(x, a1, a2, b1, b2, c) {
     d1 <- a1 * b1
@@ -73,6 +82,29 @@ fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1),
     res
   }
   
+  #remove zeros from events vector to avoid these becoming non-zero values in the hrf convolution after grand mean centering
+  #for example, for negative RPEs, if one does not occur, it will have a value of zero. But after grand mean centering below, this
+  #will now be treated as an "event" by the HRF convolution since the amplitude is no longer zero.
+  if (rm_zeros) {
+    zeros <- which(values==0.0)
+    if (length(zeros) > 0L) {
+      times <- times[-1.0*zeros]
+      values <- values[-1.0*zeros]
+      durations <- durations[-1.0*zeros]
+    }
+  }
+  
+  if (length(times) == 0L) {
+    warning("No non-zero events for regressor to be convolved. Returning all-zero result for fMRI GLM.")
+    return(rep(0, scans))
+  }
+
+  #handle mean centering of parametric values prior to convolution
+  #this is useful when one wishes to dissociate variance due to parametric modulation versus stimulus occurrence
+  if (center_values && !all(values==1.0)) {
+    values <- values - mean(values)
+  }
+    
   if (is.null(times)) {
     scale <- 1
   } else {
@@ -114,7 +146,7 @@ fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1),
   
   dim(hrf) <- c(scans/scale,1)
   
-  if (mean) {
+  if (demean) {
     hrf - mean(hrf)
   } else {
     hrf

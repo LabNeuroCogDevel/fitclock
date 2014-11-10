@@ -657,10 +657,11 @@ deltavalue_model <- setRefClass(
         theta="matrix", #matrix of param ests, bounds, starting values
         V="matrix", #runs x trials matrix of learned (expected) value
         clock_data="ANY", #allow this to be dataset, subject, or run,
-        fit_result="clock_fit" #not used at the moment
+        fit_result="clock_fit", #not used at the moment
+        carryover_value="logical"
     ),
     methods=list(
-        initialize=function(clock_data=NULL, alphaV=0.3, betaV=NULL, ...) {
+        initialize=function(clock_data=NULL, alphaV=0.3, betaV=NULL, carryover_value=TRUE, ...) {
           cat("Initializing delta-rule value model \n")
           
           alphaV <- c(min=0.0, max=1.0, init=alphaV, cur=alphaV, par_scale=1e-1)
@@ -672,6 +673,7 @@ deltavalue_model <- setRefClass(
           
           theta <<- rbind(alphaV, betaV)
           
+          carryover_value <<- carryover_value
           clock_data <<- clock_data
           callSuper(...) #initialize any additional fields.
         },
@@ -715,7 +717,7 @@ deltavalue_model <- setRefClass(
           reset_v()
           hasBeta <- "betaV" %in% names(params)
           for (r in 1:nrow(Reward)) {
-            if (r > 1L) {
+            if (r > 1L && carryover_value) {
               V[r, 1] <<- V[r-1, ncol(V)] #use value from last trial of prior run
             } else { V[r, 1] <<- 0 }
 

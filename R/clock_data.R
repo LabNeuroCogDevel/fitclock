@@ -17,13 +17,16 @@ build_design_matrix=function(
     event_onsets=NULL,
     durations=NULL,
     normalizations=NULL, #normalization of HRF
+    center_values=FALSE, #whether to center parametric regressors prior to convolution
     baselineCoefOrder=-1L,
     baselineParameterization="Legendre",
     runVolumes=NULL, #vector of total fMRI volumes for each run (used for convolved regressors)
     runsToOutput=NULL,
     plot=TRUE,
     writeTimingFiles=NULL,
-    output_directory="run_timing") {
+    output_directory="run_timing",
+    tr=1.0, #TR of scan in seconds
+    convolve_wi_run=TRUE) {
   
   if (is.null(regressors)) {
     stop("regressor names, event onsets, and event durations must be specified.")
@@ -70,8 +73,12 @@ build_design_matrix=function(
           reg <- fitobj$ev #expected value
         } else if (regressors[r] == "rpe_pos") {
           reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) x else 0 }) #positive prediction error
+        } else if (regressors[r] == "rpe_pos_bin") {
+          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) 1 else 0 }) #1/0 binarized PPE
         } else if (regressors[r] == "rpe_neg") {
           reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
+        } else if (regressors[r] == "rpe_neg_bin") {
+          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) 1 else 0 }) #1/0 binarized NPE
         } else if (regressors[r] == "rt") {
           reg <- fitobj$RTraw #parametric regressor for overall reaction time (from Badre)
         } else {
@@ -126,33 +133,80 @@ build_design_matrix=function(
   #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
   #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
   
-  #create an HRF-convolved version of the list
-  dmat.convolve <- lapply(1:dim(dmat)[1L], function(i) {
-        run.convolve <- lapply(1:dim(dmat)[2L], function(j) {
-              reg <- dmat[[i,j]] #regressor j for a given run i
-              #check for the possibility that the onset + event duration exceeds the number of good volumes in the run (e.g., if truncated for high movement) 
-              if (any(whichHigh <- (reg[,"onset"] + reg[,"duration"]) > last_fmri_volume[i])) {
-                reg <- reg[!whichHigh,]
-              }
-              
-              #see hrf_convolve_normalize for implementation details
-              if (normalizations[j] == "evtmax_1.0") {
-                #each event is 1.0-normalized
-                hrf_convolve_normalize(scans=last_fmri_volume[i], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0, normeach=TRUE)
-              } else if (normalizations[j] == "durmax_1.0") {
-                #peak amplitude of hrf is 1.0 (before multiplying by parametric value) based on stimulus duration (stims > 10s approach 1.0)
-                hrf_convolve_normalize(scans=last_fmri_volume[i], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0, normeach=FALSE)
-              } else {
-                #no normalization
-                fmri.stimulus(scans=last_fmri_volume[i], values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=1.0) #hard-coded 1.0s TR for now
-              } 
-              
-            })
+  #subfunction used by the summed runs and separate runs convolution steps
+  convolve_regressor <- function(reg, vols, normalization="none") {
+    #check for the possibility that the onset + event duration exceeds the number of good volumes in the run (e.g., if truncated for high movement) 
+    if (any(whichHigh <- (reg[,"onset"] + reg[,"duration"]) > vols)) {
+      reg <- reg[!whichHigh,]
+    }
+    
+    #see hrf_convolve_normalize for implementation details
+    if (normalization == "evtmax_1.0") {
+      #each event is 1.0-normalized
+      hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=TRUE, center_values=center_values)
+    } else if (normalization == "durmax_1.0") {
+      #peak amplitude of hrf is 1.0 (before multiplying by parametric value) based on stimulus duration (stims > 10s approach 1.0)
+      hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=FALSE, center_values=center_values)
+    } else {
+      #no normalization
+      fmri.stimulus(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, center_values=center_values)
+    } 
+    
+  }
+  
+  
+  if (convolve_wi_run) {
+    #create an HRF-convolved version of the list
+    dmat.convolve <- lapply(1:dim(dmat)[1L], function(i) {
+          run.convolve <- lapply(1:dim(dmat)[2L], function(j) {
+                reg <- dmat[[i,j]] #regressor j for a given run i
+                convolve_regressor(reg, last_fmri_volume[i], normalizations[j])
+              })
+          
+          df <- do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
+          names(df) <- dimnames(dmat)[[2L]]
+          return(df)
+        })    
+  } else {
+    #issue with convolution of each run separately is that the normalization and mean centering are applied within-run
+    #in the case of EV, for example, this will always scale the regressor in terms of relative differences in value within run, but
+    #will fail to capture relative differences across run (e.g., if value tends to be higher in run 8 than run 1)
+    
+    #here, concatenate regressors across runs by adding timing from MR files.
+    runtiming <- cumsum(runVolumes)*tr #timing in seconds of the start of successive runs
+    
+    #note that we want to add the run timing from the r-1 run to timing for run r.
+    #example: run 1 is 300 volumes with a TR of 2.0
+    # thus, run 1 has timing 0s .. 298s, and the first volume of run 2 would be 300s
+    dmat_sumruns <- lapply(1:dim(dmat)[2L], function(reg) {
+          thisreg <- dmat[,reg]
+          concattiming <- do.call(rbind, lapply(1:length(thisreg), function(run) {
+                    timing <- thisreg[[run]]
+                    timing[,"onset"] <- timing[,"onset"] + ifelse(run > 1, runtiming[run-1], 0)
+                    timing
+                  }))
 
-        df <- do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
-        names(df) <- dimnames(dmat)[[2L]]
-        return(df)
-      })
+          #convolve concatenated events with hrf
+          all.convolve <- convolve_regressor(concattiming, sum(runVolumes), normalizations[reg])
+          
+          #now, to be consistent with code below (and elsewhere), split back into runs
+          splitreg <- split(all.convolve, do.call(c, sapply(1:length(runVolumes), function(x) { rep(x, runVolumes[x]) })))
+          
+          return(splitreg)
+          
+        })
+    
+    #now have a list of length(regressors) with length(runs) elements.
+    #need to reshape into a list of data.frames where each data.fram is a run with regressors
+    dmat.convolve <- lapply(1:length(dmat_sumruns[[1L]]), function(run) {
+          df <- data.frame(lapply(dmat_sumruns, "[[", run))
+          names(df) <- dimnames(dmat)[[2L]]
+          return(df)
+        })
+  
+  }
+
+
  
 #  quick code to test that the design matrix regressors are sensible in their heights and (de)correlation with each other after convolution. 
 #  In particular, verify that zero is not being treated as an "event" by the parametric convolution after mean centering     
