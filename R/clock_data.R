@@ -21,12 +21,15 @@ build_design_matrix=function(
     baselineCoefOrder=-1L,
     baselineParameterization="Legendre",
     runVolumes=NULL, #vector of total fMRI volumes for each run (used for convolved regressors)
+    dropVolumes=0L, #vector of how many volumes to drop from the beginning of a given run
     runsToOutput=NULL,
     plot=TRUE,
     writeTimingFiles=NULL,
     output_directory="run_timing",
     tr=1.0, #TR of scan in seconds
-    convolve_wi_run=TRUE) {
+    convolve_wi_run=TRUE, #whether to mean center parametric regressors within runs before convolution
+    add_derivs=FALSE #whether to add temporal derivatives for each column after convolution
+) {
   
   if (is.null(regressors)) {
     stop("regressor names, event onsets, and event durations must be specified.")
@@ -40,25 +43,30 @@ build_design_matrix=function(
     normalizations <- rep("none", length(regressors))
   }
   
-  #require(fmri)
-  
   if (is.null(runVolumes)) {
     #determine the last fMRI volume to be analyzed
-    last_fmri_volume <- apply(fitobj$iti_onset, 1, function(itis) {
+    runVolumes <- apply(fitobj$iti_onset, 1, function(itis) {
           ceiling(itis[length(itis)] + 12.0 ) #fixed 12-second ITI after every run
         })
     message("Assuming that last fMRI volume was 12 seconds after the onset of the last ITI.")
-    message(paste0("Resulting lengths: ", paste(last_fmri_volume, collapse=", ")))
+    message(paste0("Resulting lengths: ", paste(runVolumes, collapse=", ")))
   } else {
     if (length(runVolumes) != nrow(fitobj$RTraw)) { warning("Length of runVolumes is ", length(runVolumes), ", but number of runs in fit object is ", nrow(fitobj$RTraw)) }
-    last_fmri_volume <- runVolumes
+  }
+  
+  if (length(dropVolumes) < length(runVolumes)) {
+    message("Using first element of dropVolumes for all runs: ", dropVolumes[1L])
+    dropVolumes <- rep(dropVolumes[1L], length(runVolumes)) 
   }
   
   #determine which run fits should be output for fmri analysis
   if (is.null(runsToOutput)) {
     message("Assuming that all runs should be fit and run numbers are sequential ascending")
-    runsToOutput <- 1:length(last_fmri_volume)
+    runsToOutput <- 1:length(runVolumes)
   }
+  
+  timeOffset <- tr*dropVolumes
+  runVolumes <- runVolumes - dropVolumes #elementwise subtraction of dropped volumes from full lengths
   
   #build design matrix in the order specified
   dmat <- sapply(1:length(regressors), function(r) {
@@ -71,12 +79,18 @@ build_design_matrix=function(
           reg <- abs(fitobj$bfs_var_fast + fitobj$bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
         } else if (regressors[r] == "ev") {
           reg <- fitobj$ev #expected value
+        } else if (regressors[r] == "rpe") {
+          reg <- fitobj$rpe #rpe maintaining sign
         } else if (regressors[r] == "rpe_pos") {
           reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) x else 0 }) #positive prediction error
+        } else if (regressors[r] == "rpe_pos_sqrt") {
+          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) sqrt(x) else 0 }) #positive prediction error
         } else if (regressors[r] == "rpe_pos_bin") {
           reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) 1 else 0 }) #1/0 binarized PPE
         } else if (regressors[r] == "rpe_neg") {
           reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
+        } else if (regressors[r] == "rpe_neg_sqrt") {
+          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) sqrt(abs(x)) else 0 }) #abs so that greater activation scales with response to negative PE
         } else if (regressors[r] == "rpe_neg_bin") {
           reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) 1 else 0 }) #1/0 binarized NPE
         } else if (regressors[r] == "rt") {
@@ -113,11 +127,10 @@ build_design_matrix=function(
         } else {
           stop("Unknown duration keyword:", durations[r])
         }
-        
-        
+                
         #fsl-style 3-column format: onset duration value
         output <- lapply(1:nrow(reg), function(run) {
-              cbind(onset=times[run,], duration=durmat[run,], value=reg[run,])
+              cbind(onset=times[run,] - timeOffset[run], duration=durmat[run,], value=reg[run,])
             })
 
         names(output) <- paste0("run", 1:nrow(reg))
@@ -153,14 +166,32 @@ build_design_matrix=function(
     } 
     
   }
+
+  #concatenate regressors across runs by adding timing from MR files.
+  runtiming <- cumsum(runVolumes)*tr #timing in seconds of the start of successive runs
   
+  #for visualization of events, return concatenated onsets (some code redundancy below)
+  #note that we want to add the run timing from the r-1 run to timing for run r.
+  #example: run 1 is 300 volumes with a TR of 2.0
+  # thus, run 1 has timing 0s .. 298s, and the first volume of run 2 would be 300s
+  concat_onsets <- lapply(1:dim(dmat)[2L], function(reg) {
+        thisreg <- dmat[,reg]
+        concat_reg <- do.call(c, lapply(1:length(thisreg), function(run) {
+                  timing <- thisreg[[run]]
+                  timing[,"onset"] <- timing[,"onset"] + ifelse(run > 1, runtiming[run-1], 0)
+                  timing[timing[,"value"] > 0, "onset"]
+                }))
+        
+        concat_reg
+      })
+  names(concat_onsets) <- dimnames(dmat)[[2L]]
   
   if (convolve_wi_run) {
     #create an HRF-convolved version of the list
     dmat.convolve <- lapply(1:dim(dmat)[1L], function(i) {
           run.convolve <- lapply(1:dim(dmat)[2L], function(j) {
                 reg <- dmat[[i,j]] #regressor j for a given run i
-                convolve_regressor(reg, last_fmri_volume[i], normalizations[j])
+                convolve_regressor(reg, runVolumes[i], normalizations[j])
               })
           
           df <- do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
@@ -171,13 +202,7 @@ build_design_matrix=function(
     #issue with convolution of each run separately is that the normalization and mean centering are applied within-run
     #in the case of EV, for example, this will always scale the regressor in terms of relative differences in value within run, but
     #will fail to capture relative differences across run (e.g., if value tends to be higher in run 8 than run 1)
-    
-    #here, concatenate regressors across runs by adding timing from MR files.
-    runtiming <- cumsum(runVolumes)*tr #timing in seconds of the start of successive runs
-    
-    #note that we want to add the run timing from the r-1 run to timing for run r.
-    #example: run 1 is 300 volumes with a TR of 2.0
-    # thus, run 1 has timing 0s .. 298s, and the first volume of run 2 would be 300s
+        
     dmat_sumruns <- lapply(1:dim(dmat)[2L], function(reg) {
           thisreg <- dmat[,reg]
           concattiming <- do.call(rbind, lapply(1:length(thisreg), function(run) {
@@ -206,7 +231,26 @@ build_design_matrix=function(
   
   }
 
+  #handle the addition of temporal dervitives
+  if (add_derivs) {
+    message("Adding temporal derivatives of each substantive regressor orthogonalized against design matrix")
 
+    dmat.convolve <- lapply(dmat.convolve, function(run) {
+          dmat <- as.matrix(run) #need as a matrix for lm call
+          
+          dmat_derivatives <- do.call(cbind, lapply(1:ncol(dmat), function(col) {
+                    dx <- c(0, diff(dmat[,col]))
+                    
+                    ##orthogonalize wrt design
+                    return(residuals(lm(dx ~ dmat)))                
+                  }))
+          
+          colnames(dmat_derivatives) <- paste0("d_", colnames(dmat))
+          
+          cbind(run, dmat_derivatives) #return design matrix with derivatives added
+        })
+  }
+  
  
 #  quick code to test that the design matrix regressors are sensible in their heights and (de)correlation with each other after convolution. 
 #  In particular, verify that zero is not being treated as an "event" by the parametric convolution after mean centering     
@@ -366,7 +410,7 @@ build_design_matrix=function(
     
   }
   
-  return(list(design=dmat, design.convolve=dmat.convolve, collin.raw=collinearityDiag.raw, collin.convolve=collinearityDiag.convolve))
+  return(list(design=dmat, design.convolve=dmat.convolve, collin.raw=collinearityDiag.raw, collin.convolve=collinearityDiag.convolve, concat_onsets=concat_onsets))
   
 }
 
