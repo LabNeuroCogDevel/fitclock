@@ -84,10 +84,11 @@ clock_model <- setRefClass(
         smooth="numeric", #apply moving average smooth with window size
         global_avg_RT="numeric",
         all_by="character", #character vector that is the union of all run-level fields defining vary-by-run parameters
-        fit_result="clock_fit" #results object for fitted data (also returned by $fit)
+        fit_result="clock_fit", #results object for fitted data (also returned by $fit)
+        carryover_value="logical" #whether to carryover expected value from one run to the next
     ),
     methods=list(
-        initialize=function(clock_data=NULL, use_global_avg_RT=TRUE, fit_RT_diffs=FALSE, smooth=0L, ...) {
+        initialize=function(clock_data=NULL, use_global_avg_RT=TRUE, fit_RT_diffs=FALSE, smooth=0L, carryover_value=TRUE, ...) {
           cat("Initializing clock_model\n")
           
           params <<- list() #initialize empty list of model parameters
@@ -95,6 +96,7 @@ clock_model <- setRefClass(
           use_global_avg_RT <<- use_global_avg_RT #whether to use average RT across all blocks in fit (e.g., "go for gold" scales wrt avg_RT).
           fit_RT_diffs <<- fit_RT_diffs #whether to fit trialwise differences in RTs
           smooth <<- smooth
+          carryover_value <<- carryover_value
           
           if (!is.null(clock_data)) { set_data(clock_data) }
           callSuper(...) #for classes inheriting from this, pass through unmatched iniitalization values
@@ -527,7 +529,7 @@ clock_model <- setRefClass(
             }
           } else if (class(clock_data)=="clockdata_subject") {            
             for (r in 1:length(clock_data$runs)) {
-              if (r > 1L) {
+              if (r > 1L && carryover_value) {
                 prior_w <- clock_data$runs[[r - 1]]$w #pass along environment from previous run
               } else { prior_w <- NULL }
               

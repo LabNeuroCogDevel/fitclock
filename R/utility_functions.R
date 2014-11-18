@@ -175,3 +175,60 @@ runmean <- function(x, k=5) {
   
   return(y)
 }
+
+#' detrend time series up to quadratic trend. Used by fir1Bandpass prior to filtering
+#'  
+#' @keywords internal
+detrendts <- function(x, order=0) {
+  #order 0=demean; order 1=linear; order 2=quadratic
+  lin <- 1:length(x)
+  quad <- lin^2
+  
+  if (order == 0)
+    residuals(lm(x~1))
+  else if (order == 1)
+    residuals(lm(x ~ 1 + lin))
+  else if (order == 2)
+    residuals(lm(x ~ 1 + lin + quad))
+  else
+    stop("order not supported:", order)
+}
+
+#' function to FIR-1 bandpass filter a signal. Can low- or high-pass filter by specifying 0 for low or >= Nyquist for high.
+#'  
+#' @keywords internal
+fir1Bandpass <- function(x, TR=2.0, low=.009, high=.08, n=250, plotFilter=FALSE, forward_reverse=TRUE, padx=0, detrend=1) {
+  require(signal)
+  
+  #check for all NA
+  if (all(is.na(x))) return(x)
+  
+  #n refers to filter order. 250 does quite well with typical signals
+  Fs <- 1/TR
+  nyq <- Fs/2
+  
+  #enforce filter upper bound at 1.0 (nyquist)
+  if (high/nyq > 1.0) { high <- nyq }
+  
+  #coefficients are specified in the normalized 0-1 range.
+  fir1Coef <- fir1(n, c(low/nyq, high/nyq), type="pass")
+  
+  if (plotFilter) print(freqz(fir1Coef, Fs=Fs))
+  
+  origLen <- length(x)
+  
+  #handle detrending (almost always a good idea to demean, if not detrend, for fourier series to be valid!)
+  if (!is.null(detrend) && detrend >= 0)
+    x <- detrendts(x, order=detrend)
+  
+  #zero-pad data, if requested
+  x <- c(x, rep(0*x, padx))
+  
+  #as the order of the filter exceeds the length of the time series,
+  #some sort of phase distortion is introduced.
+  #forward+reverse filtering cleans it up
+  if (forward_reverse) xfilt <- filtfilt(fir1Coef, x) 
+  else xfilt <- filter(fir1Coef, x)
+  
+  return(xfilt[1:origLen])
+}

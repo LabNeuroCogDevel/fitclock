@@ -28,7 +28,8 @@ build_design_matrix=function(
     output_directory="run_timing",
     tr=1.0, #TR of scan in seconds
     convolve_wi_run=TRUE, #whether to mean center parametric regressors within runs before convolution
-    add_derivs=FALSE #whether to add temporal derivatives for each column after convolution
+    add_derivs=FALSE, #whether to add temporal derivatives for each column after convolution
+    high_pass=NULL #whether to apply a high-pass filter to the design matrix (e.g., to match fmri preprocessing)
 ) {
   
   if (is.null(regressors)) {
@@ -147,7 +148,7 @@ build_design_matrix=function(
   #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
   
   #subfunction used by the summed runs and separate runs convolution steps
-  convolve_regressor <- function(reg, vols, normalization="none") {
+  convolve_regressor <- function(reg, vols, normalization="none", high_pass=NULL) {
     #check for the possibility that the onset + event duration exceeds the number of good volumes in the run (e.g., if truncated for high movement) 
     if (any(whichHigh <- (reg[,"onset"] + reg[,"duration"]) > vols)) {
       reg <- reg[!whichHigh,]
@@ -156,14 +157,21 @@ build_design_matrix=function(
     #see hrf_convolve_normalize for implementation details
     if (normalization == "evtmax_1.0") {
       #each event is 1.0-normalized
-      hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=TRUE, center_values=center_values)
+      x<- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=TRUE, center_values=center_values)
     } else if (normalization == "durmax_1.0") {
       #peak amplitude of hrf is 1.0 (before multiplying by parametric value) based on stimulus duration (stims > 10s approach 1.0)
-      hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=FALSE, center_values=center_values)
+      x<- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=FALSE, center_values=center_values)
     } else {
       #no normalization
-      fmri.stimulus(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, center_values=center_values)
-    } 
+      x <- fmri.stimulus(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, center_values=center_values)
+    }
+    
+    #apply high-pass filter after convolution if requested
+    if (!is.null(high_pass)) {
+      x <- fir1Bandpass(x, TR=tr, low=high_pass, high=1/tr/2, plotFilter=FALSE, forward_reverse=TRUE, padx=1, detrend=1)
+    }
+    
+    return(x)
     
   }
 
@@ -191,7 +199,7 @@ build_design_matrix=function(
     dmat.convolve <- lapply(1:dim(dmat)[1L], function(i) {
           run.convolve <- lapply(1:dim(dmat)[2L], function(j) {
                 reg <- dmat[[i,j]] #regressor j for a given run i
-                convolve_regressor(reg, runVolumes[i], normalizations[j])
+                convolve_regressor(reg, runVolumes[i], normalizations[j], high_pass=high_pass)
               })
           
           df <- do.call(data.frame, run.convolve) #pull into a data.frame with ntrials rows and nregressors cols (convolved)
@@ -212,7 +220,7 @@ build_design_matrix=function(
                   }))
 
           #convolve concatenated events with hrf
-          all.convolve <- convolve_regressor(concattiming, sum(runVolumes), normalizations[reg])
+          all.convolve <- convolve_regressor(concattiming, sum(runVolumes), normalizations[reg], high_pass=high_pass)
           
           #now, to be consistent with code below (and elsewhere), split back into runs
           splitreg <- split(all.convolve, do.call(c, sapply(1:length(runVolumes), function(x) { rep(x, runVolumes[x]) })))
@@ -276,8 +284,17 @@ build_design_matrix=function(
     if ("FSL" %in% writeTimingFiles) {
       for (i in 1:dim(dmat)[1L]) {
         for (reg in 1:dim(dmat)[2L]) {
+          regout <- dmat[[i,reg]]
+          if (center_values && !all(regout[,"value"] == 0.0)) {
+            #remove zero-value events from the regressor
+            regout <- regout[regout[,"value"] != 0, ]
+            
+            #now mean center values (unless there is no variation, such as a task indicator function)
+            if (sd(regout[,"value"]) > 0) { regout[,"value"] <- regout[,"value"] - mean(regout[,"value"]) }            
+          } 
+			
           fname <- paste0("run", runsToOutput[i], "_", dimnames(dmat)[[2L]][reg], "_FSL3col.txt")
-          write.table(dmat[[i,reg]], file=file.path(output_directory, fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
+          write.table(regout, file=file.path(output_directory, fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
         }
       }
     }
