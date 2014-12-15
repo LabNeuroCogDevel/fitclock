@@ -197,8 +197,9 @@ detrendts <- function(x, order=0) {
 #' function to FIR-1 bandpass filter a signal. Can low- or high-pass filter by specifying 0 for low or >= Nyquist for high.
 #'  
 #' @keywords internal
+#' @importFrom signal fir1 filtfilt freqz
+#' @export
 fir1Bandpass <- function(x, TR=2.0, low=.009, high=.08, n=250, plotFilter=FALSE, forward_reverse=TRUE, padx=0, detrend=1) {
-  require(signal)
   
   #check for all NA
   if (all(is.na(x))) return(x)

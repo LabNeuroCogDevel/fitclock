@@ -4,11 +4,13 @@
 \title{convolve a regressor with a hemodynamic response function for fMRI analysis.}
 \usage{
 fmri.stimulus(scans = 1, onsets = c(1), durations = c(1), values = c(1),
-  rt = 3, times = NULL, mean = TRUE, a1 = 6, a2 = 12, b1 = 0.9,
-  b2 = 0.9, cc = 0.35)
+  center_values = FALSE, rm_zeros = TRUE, rt = 3, times = NULL,
+  demean = TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35)
 }
 \description{
 extended from fmri package to allow for continuous-valued regressor,
 which is passed using the values parameter.
+also support mean centering of parametric regressor prior to convolution
+to dissociate it from stimulus occurrence (when event regressor also in model)
 }
 

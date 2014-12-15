@@ -4,7 +4,7 @@
 \title{convolve a regressor with a normalized HRF with peak amplitude = 1.0}
 \usage{
 hrf_convolve_normalize(scans, times, durations, values, rt = 1,
-  normeach = FALSE, rmzeros = TRUE, demean_events = TRUE,
+  normeach = FALSE, rm_zeros = TRUE, center_values = TRUE,
   demean_convolved = FALSE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9,
   cc = 0.35)
 }

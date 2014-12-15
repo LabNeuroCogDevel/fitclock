@@ -420,7 +420,7 @@ clock_model <- setRefClass(
             
             #need to find the best-fitting result here
             #note that other fits are not saved at the moment
-            fit_output <- multFits[[ which.min(sapply(multFits, function(m) { m$total_SSE} )) ]]
+            fit_output <- tryCatch(multFits[[ which.min(sapply(multFits, function(m) { m$total_SSE} )) ]], error=function(e) { print(e); browser() } )
             
           } else {
             fit_output <- fitWorker(initialValues)
