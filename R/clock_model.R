@@ -365,7 +365,7 @@ clock_model <- setRefClass(
             } else if (optimizer=="nlminb") {
               #this is the most sensible, and corresponds to optim above (and is somewhat faster)
               elapsed_time <- system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, 
-                      lower=lower, upper=upper, scale=1/params_par_scale(),
+                      lower=lower, upper=upper, scale=1/params_par_scale(), control=list(eval.max=500),
                       updateFields=FALSE, track_optimization_history=FALSE)) #I think no tracking of history to avoid collisions in shared objects
             }
             

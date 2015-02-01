@@ -385,6 +385,10 @@ build_design_matrix=function(
                   regressor[,"value"]
                 }))
         
+        #remove any constant columns (e.g., task indicator regressor for clock) so that VIF computation is sensible
+        zerosd <- sapply(cmat, sd)
+        cmat <- cmat[,zerosd != 0.0]
+        
         corvals <- cor(cmat, use="pairwise.complete.obs")
         vifMat <- data.frame(cbind(const=rep(1,nrow(cmat)), cmat)) #add dummy constant for vif
         vifForm <- as.formula(paste("const ~ 1 +", paste(names(cmat), collapse=" + ")))
@@ -711,8 +715,8 @@ clock_fit <- setRefClass(
           #only populate field if it is not already initialized
           
           if (class(clock_data) == "clockdata_run") {
-            #convert to list object so thta the lapply calls below work for both single and multiple runs
-            clock_data <- list(runs=clock_data)
+            #convert to list of list objects so that the lapply calls below work for both single and multiple runs
+            clock_data <- list(runs=list(clock_data))
           }
           
           if (length(ntrials)==0L) { ntrials <<- sum(unlist(lapply(clock_data$runs, function(r) { r$w$ntrials } ))) }
@@ -727,7 +731,7 @@ clock_fit <- setRefClass(
           if (length(run_condition)==0L) { run_condition <<- do.call(c, lapply(clock_data$runs, function(r) { r$run_condition })) }
           if (length(ev)==0L) { ev <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$V })) } #expected value
           if (length(rpe)==0L) { rpe <<- Reward - ev } #better or worse than expected?
-          
+
           #get a list prediction contributions of each parameter per run: each element is a params x trials matrix
           if (length(pred_contrib)==0L) { 
             pred_contrib <<- lapply(clock_data$runs, function(r) { 
@@ -747,6 +751,7 @@ clock_fit <- setRefClass(
         },
         plotRTs=function() {
           rtDf <- data.frame(
+              trial=rep(1:ncol(RTobs), nrow(RTobs)),
               run=rep(1:nrow(RTobs), each=length(RTobs)),
               run_condition=rep(run_condition, each=length(RTobs)), 
               rew_function=rep(rew_function, each=length(RTobs)),
