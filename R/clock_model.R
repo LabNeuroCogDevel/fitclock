@@ -184,7 +184,7 @@ clock_model <- setRefClass(
           setup_param_by()
         },
         
-        #expand parameters to accommodate per-condition variation, depending on clock_data\
+        #expand parameters to accommodate per-condition variation, depending on clock_data
         #TODO: problem that if we set the data up front, then add a by, but don't call set_data
         setup_param_by=function() {
           if (inherits(clock_data, "uninitializedField")) { return(invisible(NULL)) } #do nothing
@@ -207,6 +207,25 @@ clock_model <- setRefClass(
             for (n in 1:ncol(conMat_df)) {
               conMat_df[,n] <- paste(names(conMat_df)[n], conMat_df[,n], sep=":")
             }
+            
+            #prior to setting up the by-condition variation, we need to clear out any previous by-condition parameters
+            #otherwise, each time this function is called, we will be tacking on the by-condition parameters again!
+            has_base <- unique(sapply(params, function(p) { ifelse(is.null(p$base_name), NA_character_, p$base_name) } ))
+            
+            if (!all(is.na(has_base))) { #only need to undo previous by-condition params if they exist
+              params <- lapply(params, function(p) {
+                    p$name <- p$base_name #undo by-condition
+                    p$init_value <- p$init_value[1L] #only first element
+                    p$cur_value <- p$cur_value[1L] #only first element
+                    p$min_value <- p$min_value[1L] #only first element
+                    p$max_value <- p$max_value[1L] #only first element
+                    p$par_scale <- p$par_scale[1L] #only first element
+                    names(p$init_value) <- names(p$cur_value) <- names(p$max_value) <- names(p$min_value) <- names(p$par_scale) <- p$name
+                    p
+                  })
+              
+            }
+            
             params <<- lapply(params, function(p) {
                   p$base_name <- p$name#[1L] #just basic parameter name without condition (used for getTheta lookup) 
                   if (!is.null(p$by)) {
@@ -420,6 +439,12 @@ clock_model <- setRefClass(
             
             #need to find the best-fitting result here
             #note that other fits are not saved at the moment
+            failed <- sapply(multFits, function(m) { m$opt_data$convergence != 0 })
+            if (all(failed)) {
+              stop("All random starts failed to converge.")
+            } else {
+              multFits <- multFits[!failed]
+            }
             fit_output <- tryCatch(multFits[[ which.min(sapply(multFits, function(m) { m$total_SSE} )) ]], error=function(e) { print(e); browser() } )
             
           } else {
