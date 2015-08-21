@@ -215,11 +215,11 @@ clock_model <- setRefClass(
             if (!all(is.na(has_base))) { #only need to undo previous by-condition params if they exist
               params <- lapply(params, function(p) {
                     p$name <- p$base_name #undo by-condition
-                    p$init_value <- p$init_value[1L] #only first element
-                    p$cur_value <- p$cur_value[1L] #only first element
-                    p$min_value <- p$min_value[1L] #only first element
-                    p$max_value <- p$max_value[1L] #only first element
-                    p$par_scale <- p$par_scale[1L] #only first element
+                    p$init_value <- p$init_value[1L:length(p$base_name)] #only keep the original base parameters (in the case of stickyChoice, would a by-condition variation blow this up?)
+                    p$cur_value <- p$cur_value[1L:length(p$base_name)]
+                    p$min_value <- p$min_value[1L:length(p$base_name)]
+                    p$max_value <- p$max_value[1L:length(p$base_name)]
+                    p$par_scale <- p$par_scale[1L:length(p$base_name)]
                     names(p$init_value) <- names(p$cur_value) <- names(p$max_value) <- names(p$min_value) <- names(p$par_scale) <- p$name
                     p
                   })
@@ -384,7 +384,7 @@ clock_model <- setRefClass(
             } else if (optimizer=="nlminb") {
               #this is the most sensible, and corresponds to optim above (and is somewhat faster)
               elapsed_time <- system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, 
-                      lower=lower, upper=upper, scale=1/params_par_scale(), control=list(eval.max=500),
+                      lower=lower, upper=upper, scale=1/params_par_scale(), control=list(eval.max=500, iter.max=500),
                       updateFields=FALSE, track_optimization_history=FALSE)) #I think no tracking of history to avoid collisions in shared objects
             }
             
@@ -417,10 +417,10 @@ clock_model <- setRefClass(
           }
           
           
-          if (!is.null(random_starts) && is.numeric(random_starts)) {
+          if (!is.null(random_starts) && is.numeric(random_starts) && random_starts > 0) {
             require(foreach)
             require(doMC)
-            njobs <- min(parallel::detectCores(), random_starts)
+            njobs <- min(parallel::detectCores(), random_starts+1)
             registerDoMC(njobs)
             
             #create a set of initial values by runif simulation between parameter bounds
@@ -431,9 +431,9 @@ clock_model <- setRefClass(
                     runif(1, lower[p], upper[p]) #uniform sample between bounds
                   })
             }
-            initMat <- rbind(initMat, initialValues)
+            initMat <- rbind(initMat, initialValues) #add "good" starting values
             
-            multFits <- foreach(r=iter(1:random_starts), .inorder=FALSE) %dopar% {
+            multFits <- foreach(r=iter(1:nrow(initMat)), .inorder=FALSE) %dopar% {
               fitWorker(initialValues=initMat[r,], optimizer="nlminb")
             }
             
@@ -441,12 +441,21 @@ clock_model <- setRefClass(
             #note that other fits are not saved at the moment
             failed <- sapply(multFits, function(m) { m$opt_data$convergence != 0 })
             if (all(failed)) {
-              stop("All random starts failed to converge.")
+              #try with optim...
+#              multFits <- foreach(r=iter(1:random_starts), .inorder=FALSE) %dopar% {
+#                fitWorker(initialValues=initMat[r,], optimizer="optim")
+#              }
+              #library(minqa)
+              #test <- bobyqa(initialValues, fn=.self$predict, lower=lower, upper=upper, updateFields=FALSE, track_optimization_history=FALSE)
+              
+              #browser()
+              warning("All random starts failed to converge.")
+              #just use first element of fits since it will get trapped below as an optimization failure.
+              fit_output <- multFits[[1]]    
             } else {
               multFits <- multFits[!failed]
+              fit_output <- tryCatch(multFits[[ which.min(sapply(multFits, function(m) { m$total_SSE} )) ]], error=function(e) { print(e); browser() } )
             }
-            fit_output <- tryCatch(multFits[[ which.min(sapply(multFits, function(m) { m$total_SSE} )) ]], error=function(e) { print(e); browser() } )
-            
           } else {
             fit_output <- fitWorker(initialValues)
           }
@@ -611,6 +620,8 @@ clock_model <- setRefClass(
           } else {
             w$RT_last2 <- w$RTobs[1L]
           }
+          
+          w$run_condition <- to_fit$run_condition
           
           ##TODO: Risk that we initialize some vals above (like initial V), but predict is called iteratively for optimization, so values will not be reset here if they were set in initialize
           

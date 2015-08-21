@@ -221,15 +221,26 @@ meanSlowFast <- function(min_value=0, max_value=10000, init_value=300, cur_value
 #' @param by character vector defining one or more run-level fields over which this parameter varies.
 #' 
 #' @export
-exploreBeta <- function(min_value=0, max_value=100000, init_value=2000, cur_value=init_value, par_scale=1e3, by=NULL) {
+exploreBeta <- function(min_value=c(epsilon=0.0, tau=NA_real_), max_value=c(epsilon=100000, tau=100000), init_value=c(epsilon=2000, tau=2000), cur_value=init_value, par_scale=c(epsilon=1e3, tau=1e3), by=NULL) {
   obj <- structure(
-      list(name = "epsilonBeta"), 
+      list(name = c("epsilonBeta", "tau")), 
       class=c("p_epsilonBeta", "param")
   )
+  
+  #no tau model by default
+  if (is.na(min_value["tau"])) {
+    obj$name <- "epsilonBeta"
+    min_value <- min_value[1L]
+    max_value <- max_value[1L]
+    init_value <- init_value[1L]
+    cur_value <- cur_value[1L]
+    par_scale <- par_scale[1L]
+  }
   
   obj <- initialize_par(obj, min_value, max_value, init_value, cur_value, par_scale, by) #check and initialize fields
   return(invisible(obj))
 }
+
 
 #' beta distribution worker class (handled as environment shared by epsilon and rho)
 #' 
@@ -541,13 +552,23 @@ getRTUpdate.p_epsilonBeta=function(obj, theta) {
   updateBetaDists(obj$w$betaFastSlow) #update fast/slow beta dists
   
   obj$w$cur_value <- theta[obj$theta_lookup]
+  
+  #emo linear
+  if (length(obj$w$cur_value) == 2L) {
+    if (obj$w$run_condition == "fear") { obj$w$emoLinear <- -1*obj$w$cur_value["tau"]        
+    } else if (obj$w$run_condition == "happy") { obj$w$emoLinear <- 1*obj$w$cur_value["tau"]        
+    } else if (obj$w$run_condition == "scram") { obj$w$emoLinear <- 0 
+    } else { stop("Cannot identify run condition for emo linear tau: ", obj$w$run_condition) }
+  } else {
+    obj$w$emoLinear <- 0 #no emotion tau model (just usual eps)
+  }
   eval(
       quote({                
             if (RT_last > betaFastSlow$local_RT_last) {
               #explore parameter scales the difference in SDs between the fast and slow beta dists
-              explore <- -1.0*cur_value * (sqrt(betaFastSlow$var_fast[cur_trial]) - sqrt(betaFastSlow$var_slow[cur_trial]))  # speed up if more uncertain about fast responses
+              explore <- -1.0*(cur_value["epsilonBeta"] + emoLinear) * (sqrt(betaFastSlow$var_fast[cur_trial]) - sqrt(betaFastSlow$var_slow[cur_trial]))  # speed up if more uncertain about fast responses
             } else {
-              explore <- +1.0*cur_value * (sqrt(betaFastSlow$var_slow[cur_trial]) - sqrt(betaFastSlow$var_fast[cur_trial])) #slow down if more uncertain about slow responses
+              explore <- +1.0*(cur_value["epsilonBeta"] + emoLinear) * (sqrt(betaFastSlow$var_slow[cur_trial]) - sqrt(betaFastSlow$var_fast[cur_trial])) #slow down if more uncertain about slow responses
             }
             
             # reset if already explored in this direction last trial (see supplement of Frank et al 09)
