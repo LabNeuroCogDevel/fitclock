@@ -584,12 +584,12 @@ clockdata_subject <- setRefClass(
                 Reward=d$score,
                 global_trial_number=d$trial,
                 rew_function=as.character(d$rewFunc[1L]),
-                run_condition=as.character(d$emotion[1L]),
                 orig_data_frame=d)
-            
-            if ("clock_onset" %in% names (d)) { r$clock_onset <- d$clock_onset }
-            if ("feedback_onset" %in% names (d)) { r$feedback_onset <- d$feedback_onset }
-            if ("iti_onset" %in% names (d)) { r$iti_onset <- d$iti_onset }
+
+            if ("emotion" %in% names(d)) { r$run_condition <- as.character(d$emotion[1L]) }            
+            if ("clock_onset" %in% names(d)) { r$clock_onset <- d$clock_onset }
+            if ("feedback_onset" %in% names(d)) { r$feedback_onset <- d$feedback_onset }
+            if ("iti_onset" %in% names(d)) { r$iti_onset <- d$iti_onset }
             
             .self$add_runs(r)
           }
