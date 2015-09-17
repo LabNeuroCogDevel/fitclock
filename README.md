@@ -13,7 +13,7 @@ To install the package from github, run the following in R:
 ```r
 if (!require(devtools)) { install.packages("devtools"); require(devtools) }
 
-install_github("fitclock", "LabNeuroCogDevel", args="--byte-compile")
+install_github("fitclock", "PennStateDEPENdLab", args="--byte-compile")
 
 #load package
 library(fitclock)

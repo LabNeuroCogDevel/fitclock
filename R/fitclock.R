@@ -65,6 +65,6 @@ NULL
 #' @usage data(clocksubject_1000)
 #' @format a data.frame containing 9 runs of 40 trials, representing a 3x3 design:
 #'       rewFunc: IEV, DEV, CEVR; and emotion: fear, happy, scrambled.
-#' @source Laboratory for Neurocognitive Development, University of Pittsburgh
+#' @source Laboratory for Developmental Personality Neuroscience, Penn State University
 #' @author Michael Hallquist, 2013-01-27
 NULL
