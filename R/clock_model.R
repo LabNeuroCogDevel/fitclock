@@ -66,6 +66,10 @@
 #' 
 #' @importFrom methods setRefClass
 #' @importFrom ggplot2 ggplot
+#' @importFrom parallel detectCores
+#' @importFrom doParallel registerDoParallel
+#' @importFrom foreach foreach
+#' @importFrom iterators iter
 #' @export clock_model
 #' @exportClass clock_model
 #' @name clock_model
@@ -310,10 +314,8 @@ clock_model <- setRefClass(
           full_params <- params
           
           if (njobs > 1L) {
-            require(foreach)
-            require(doMC)
             njobs <- min(parallel::detectCores(), njobs)
-            registerDoMC(njobs)
+            registerDoParallel(cores=njobs) #implicit cluster registration that doesn't need to be shutdown manually
           }
           
           model_results <- foreach(r=iter(1:length(full_params)), .inorder=TRUE) %dopar% {
@@ -329,7 +331,6 @@ clock_model <- setRefClass(
           nparams <- sapply(model_results, function(m) { ifelse (identical(m$nparams, numeric(0)), NA_real_, m$nparams) })
           pnames <- paste(unlist(lapply(full_params, function(p) { p$name })), " : ", 1:length(full_params), sep="", collapse="\n")
           
-          #require(ggplot2)
           df <- data.frame(AIC=AICs, nparams=nparams)
           g <- ggplot(df, aes(x=nparams, y=AIC)) + geom_point() + geom_line() + ggtitle("AIC values for increasing model complexity") +
               annotate("text", x=max(df$nparams, na.rm=TRUE), y=max(df$AIC, na.rm=TRUE), hjust=1.0, vjust=1.0, label=pnames) + theme_bw(base_size=15) +
@@ -418,10 +419,8 @@ clock_model <- setRefClass(
           
           
           if (!is.null(random_starts) && is.numeric(random_starts) && random_starts > 0) {
-            require(foreach)
-            require(doMC)
             njobs <- min(parallel::detectCores(), random_starts+1)
-            registerDoMC(njobs)
+            registerDoParallel(cores=njobs)
             
             #create a set of initial values by runif simulation between parameter bounds
             
@@ -469,8 +468,6 @@ clock_model <- setRefClass(
           #elapsed_time <- system.time(optResult <- optim_ppso_robust(objective_function=.self$predict, nslaves=6,
           #        initial_estimates=as.matrix(initialValues), parameter_bounds=cbind(lower, upper),
           #        max_number_function_calls=200, projectfile=NULL, logfile=NULL))
-          
-          
           
           #this is roughly what is suggested in the PORT documentation (1/max scaling). But it's slower than 1/magnitude above.
           #system.time(optResult <- nlminb(start=initialValues, objective=.self$predict, lower=lower, upper=upper, scale=1/upper, #scale=c(1, 100, 100, 100, 100),
