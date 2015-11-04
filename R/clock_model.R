@@ -65,10 +65,10 @@
 #'     durations=c("rt", "rt", "feedback_duration", "feedback_duration", 0), baselineCoefOrder=2, writeTimingFiles=TRUE)
 #' 
 #' @importFrom methods setRefClass
-#' @importFrom ggplot2 ggplot
+#' @importFrom ggplot2 ggplot aes scale_x_continuous theme_bw geom_point geom_line annotate xlab
 #' @importFrom parallel detectCores
 #' @importFrom doParallel registerDoParallel
-#' @importFrom foreach foreach
+#' @importFrom foreach foreach %dopar%
 #' @importFrom iterators iter
 #' @export clock_model
 #' @exportClass clock_model

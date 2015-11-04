@@ -2,9 +2,9 @@ Package: fitclock
 Type: Package
 Title: An R package to fit RT and Reward behavioral data from Michael Frank
     clock task.
-Version: 0.7
-Date: 2014-01-27
-Author: Michael Hallquist (adapted from M. Frank)
+Version: 0.8
+Date: 2015-11-05
+Author: Michael Hallquist (TC model adapted from M. Frank)
 Maintainer: Michael Hallquist <michael.hallquist@gmail.com>
 Description: Object-oriented implementation of the time clock algorithm, a
     multiple regression-style prediction of reaction time on each trial of the
@@ -16,10 +16,20 @@ Description: Object-oriented implementation of the time clock algorithm, a
     matrix.
 LazyData: yes
 License: GPL
-Depends:
-    methods,
-    ggplot2,
-    fmri,
+Imports:
     car,
-    Hmisc
+    data.table,
+    doParallel,
+    foreach,
+    fmri,
+    ggplot2,
+    Hmisc,
+    iterators,
+    methods,
+    orthopolynom,
+    parallel,
+    plyr,
+    reshape2,
+    signal,
+    tools
 ByteCompile: yes

@@ -468,7 +468,7 @@ concatDesignRuns <- function(d) {
 
 #' Visualize design matrix, including event onset times and run boundaries
 #'
-#' @importFrom ggplot2 ggplot
+#' @importFrom ggplot2 ggplot aes geom_line theme_bw facet_grid geom_vline ggsave
 #' @importFrom reshape2 melt
 #' @export
 visualizeDesignMatrix <- function(d, outfile=NULL, runboundaries=NULL, events=NULL, includeBaseline=TRUE) {
@@ -739,6 +739,7 @@ clockdata_subject <- setRefClass(
 #' @importFrom fmri fmri.design
 #' @importFrom car vif
 #' @importFrom Hmisc Lag
+#' @importFrom ggplot2 geom_line ggtitle theme_bw
 #' @export clock_fit
 #' @exportClass clock_fit
 clock_fit <- setRefClass(
