@@ -8,7 +8,8 @@
 #abstract build_design_matrix function from clock_fit object to allow for more rapid tweaks without re-fitting data.
 #' Create fmri design matrix for AFNI, FSL, or internal convolved design.
 #'
-#' @importFrom data.table as.data.table 
+#' @importFrom data.table as.data.table
+#' @importFrom plyr round_any 
 #' @importFrom orthopolynom legendre.polynomials polynomial.values
 #' @export
 build_design_matrix=function(
@@ -157,10 +158,10 @@ build_design_matrix=function(
     #see hrf_convolve_normalize for implementation details
     if (normalization == "evtmax_1.0") {
       #each event is 1.0-normalized
-      x<- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=TRUE, center_values=center_values)
+      x <- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=TRUE, center_values=center_values)
     } else if (normalization == "durmax_1.0") {
       #peak amplitude of hrf is 1.0 (before multiplying by parametric value) based on stimulus duration (stims > 10s approach 1.0)
-      x<- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=FALSE, center_values=center_values)
+      x <- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=FALSE, center_values=center_values)
     } else {
       #no normalization
       x <- fmri.stimulus(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, center_values=center_values)
@@ -337,20 +338,24 @@ build_design_matrix=function(
             #onsets and durations are constant, amplitudes vary
             runvec <- c() #character vector of AFNI runs (one row per run)
             for (i in 1:dim(combmat)[1L]) {
-              runonsets <- combmat[[i,1]][,"onset"] #just use first regressor of combo to get onsets and durations
+              runonsets <- combmat[[i,1]][,"onset"] #just use first regressor of combo to get vector onsets and durations (since combinations, by definition, share these)
               rundurations <- combmat[[i,1]][,"duration"]
-              rundurations <- do.call(cbind, lapply(combmat[i,], function(reg) { reg[,"duration"] }))
               runvalues <- do.call(cbind, lapply(combmat[i,], function(reg) { reg[,"value"] }))
               
-              #AFNI doesn't like us if we pass in the boxcar ourselves. Filter out.
+              #AFNI doesn't like us if we pass in the boxcar ourselves in the dmBLOCK format (since it creates this internally). Filter out.
               indicatorFunc <- apply(runvalues, 2, function(col) { all(col == 1.0)} )
-              if (any(indicatorFunc)) {
-                runvalues <- runvalues[,-1*which(indicatorFunc), drop=FALSE]
-              }
+              if (any(indicatorFunc)) { runvalues <- runvalues[,-1*which(indicatorFunc), drop=FALSE] }
               
-              runvec[i] <- paste(sapply(1:length(runonsets), function(j) { 
-                        paste0(plyr::round_any(runonsets[j], .000001), "*", paste(plyr::round_any(runvalues[j,], .000001), collapse=","), ":", plyr::round_any(rundurations[j], .00001))
-                      }), collapse=" ")
+              #if the indicator regressor was the only thing present, revert to the notation TIME:DURATION notation for dmBLOCK (not TIME*PARAMETER:DURATION)
+              if (ncol(runvalues) == 0L) {
+                runvec[i] <- paste(sapply(1:length(runonsets), function(j) { 
+                          paste0(plyr::round_any(runonsets[j], .000001), ":", plyr::round_any(rundurations[j], .000001))
+                        }), collapse=" ")
+              } else {
+                runvec[i] <- paste(sapply(1:length(runonsets), function(j) { 
+                          paste0(plyr::round_any(runonsets[j], .000001), "*", paste(plyr::round_any(runvalues[j,], .000001), collapse=","), ":", plyr::round_any(rundurations[j], .000001))
+                        }), collapse=" ")
+              }              
             }
             
             writeLines(runvec, file.path(output_directory, paste0(paste(dimnames(combmat)[[2L]], collapse="_"), "_dmBLOCK.txt")))
@@ -389,18 +394,23 @@ build_design_matrix=function(
         zerosd <- sapply(cmat, sd)
         cmat <- cmat[,zerosd != 0.0]
         
-        corvals <- cor(cmat, use="pairwise.complete.obs")
-        vifMat <- data.frame(cbind(const=rep(1,nrow(cmat)), cmat)) #add dummy constant for vif
-        vifForm <- as.formula(paste("const ~ 1 +", paste(names(cmat), collapse=" + ")))
-        
-        varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
-        list(r=corvals, vif=varInfl)
+        if (ncol(cmat) == 0L) {
+          #if only task indicator regressors are included, then they cannot be collinear before convolution since there is no variability
+          return(list(r=NA_real_, vif=NA_real_))
+        } else {
+          corvals <- cor(cmat, use="pairwise.complete.obs")
+          vifMat <- data.frame(cbind(dummy=rnorm(nrow(cmat)), cmat)) #add dummy constant for vif
+          vifForm <- as.formula(paste("dummy ~ 1 +", paste(names(cmat), collapse=" + ")))
+          
+          varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
+          return(list(r=corvals, vif=varInfl))  
+        }
       })
   
   collinearityDiag.convolve <- lapply(dmat.convolve, function(run) { #apply(dmat.convolve, 1, function(run) {                    
         corvals <- cor(run, use="pairwise.complete.obs")
-        vifMat <- data.frame(cbind(const=rep(1,nrow(run)), run)) #add dummy constant for vif 
-        vifForm <- as.formula(paste("const ~ 1 +", paste(names(run), collapse=" + ")))
+        vifMat <- data.frame(cbind(dummy=rnorm(nrow(run)), run)) #add dummy constant for vif 
+        vifForm <- as.formula(paste("dummy ~ 1 +", paste(names(run), collapse=" + ")))
         
         varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
         list(r=corvals, vif=varInfl)
@@ -422,7 +432,7 @@ build_design_matrix=function(
             d <- cbind(r, baseline)
           } else {
             #compute polynomials that are orthogonal to design effects
-            #this may be somewhat dubious. for example, a linear trend in a task regressor would be preserved because 
+            #this may be somewhat dubious. for example, a linear trend in a task regressor would be preserved because it is given preference over baseline 
             d <- data.frame(fmri.design(r, order=baselineCoefOrder))
             names(d) <- c(n, paste0("base", 0:baselineCoefOrder))
           }          
@@ -431,10 +441,66 @@ build_design_matrix=function(
     
   }
   
-  return(list(design=dmat, design.convolve=dmat.convolve, collin.raw=collinearityDiag.raw, collin.convolve=collinearityDiag.convolve, concat_onsets=concat_onsets))
+  return(list(design=dmat, design.convolve=dmat.convolve, collin.raw=collinearityDiag.raw, collin.convolve=collinearityDiag.convolve, concat_onsets=concat_onsets, runVolumes=runVolumes))
   
 }
 
+#' Concatenate design matrices for each run to form a single design with unique baselines per run (ala AFNI)
+#'
+#' @importFrom plyr rbind.fill
+#' @export
+concatDesignRuns <- function(d) {
+  
+  d_allruns <- do.call(rbind.fill, lapply(1:length(d$design.convolve), function(r) {
+            thisrun <- d$design.convolve[[r]]
+            basecols <- grepl("base", names(thisrun))
+            ##note that this will rename repeated names into something like ev and ev.1, which is good
+            names(thisrun) <- gsub("base", paste0("run", r, "base"), names(thisrun))
+            thisrun
+          }))
+  
+  d_allruns[which(is.na(d_allruns), arr.ind=TRUE)] <- 0
+  d_allruns <- as.matrix(d_allruns) #needed for lm
+  
+  d_allruns
+}
+
+
+#' Visualize design matrix, including event onset times and run boundaries
+#'
+#' @importFrom ggplot2 ggplot
+#' @importFrom reshape2 melt
+#' @export
+visualizeDesignMatrix <- function(d, outfile=NULL, runboundaries=NULL, events=NULL, includeBaseline=TRUE) {
+  
+  if (!includeBaseline) {
+    d <- d[,!grepl("run[0-9]+base", colnames(d))]
+  }
+  
+  print(round(cor(d), 3))
+  d <- as.data.frame(d)
+  d$volume <- 1:nrow(d)
+  d.m <- melt(d, id.vars="volume")
+  g <- ggplot(d.m, aes(x=volume, y=value)) + geom_line(size=1.2) + theme_bw(base_size=15) + facet_grid(variable ~ ., scales="free_y")
+  
+  colors <- c("black", "blue", "red", "orange") #just a hack for color scheme right now
+  
+  if (!is.null(runboundaries)) {
+    g <- g + geom_vline(xintercept=runboundaries, color=colors[1L])
+  }
+    
+  if (!is.null(events)) {
+    for (i in 1:length(events)) {
+      g <- g + geom_vline(xintercept=events[[i]], color=colors[i+1])
+    }
+  }
+  
+  if (!is.null(outfile)) {
+    ggsave(filename=outfile, plot=g, width=21, height=9)
+  }
+  
+  return(invisible(g))
+}
 
 
 #' dataset object for group-level data (multiple subjects with multiple runs)
