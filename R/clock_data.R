@@ -47,7 +47,7 @@ build_design_matrix=function(
   
   if (is.null(runVolumes)) {
     #determine the last fMRI volume to be analyzed
-    runVolumes <- apply(fitobj$iti_onset, 1, function(itis) {
+    runVolumes <- sapply(fitobj$iti_onset, function(itis) {
           ceiling(itis[length(itis)] + 12.0 ) #fixed 12-second ITI after every run
         })
     message("Assuming that last fMRI volume was 12 seconds after the onset of the last ITI.")
@@ -71,79 +71,80 @@ build_design_matrix=function(
   runVolumes <- runVolumes - dropVolumes #elementwise subtraction of dropped volumes from full lengths
   
   #build design matrix in the order specified
-  dmat <- sapply(1:length(regressors), function(r) {
-        #Note: all of the regressor computations here should result in nruns x ntrials matrices
-        #regressor values
-        if (regressors[r] == "rel_uncertainty") {
-          #trialwise relative uncertainty about fast versus slow responses: subtract variances 
-          reg <- abs(fitobj$bfs_var_fast - fitobj$bfs_var_slow)
-        } else if (regressors[r] == "mean_uncertainty") {
-          reg <- abs(fitobj$bfs_var_fast + fitobj$bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
-        } else if (regressors[r] == "ev") {
-          reg <- fitobj$ev #expected value
-        } else if (regressors[r] == "rpe") {
-          reg <- fitobj$rpe #rpe maintaining sign
-        } else if (regressors[r] == "rpe_pos") {
-          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) x else 0 }) #positive prediction error
-        } else if (regressors[r] == "rpe_pos_sqrt") {
-          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) sqrt(x) else 0 }) #positive prediction error
-        } else if (regressors[r] == "rpe_pos_bin") {
-          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x > 0) 1 else 0 }) #1/0 binarized PPE
-        } else if (regressors[r] == "rpe_neg") {
-          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) abs(x) else 0 }) #abs so that greater activation scales with response to negative PE
-        } else if (regressors[r] == "rpe_neg_sqrt") {
-          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) sqrt(abs(x)) else 0 }) #abs so that greater activation scales with response to negative PE
-        } else if (regressors[r] == "rpe_neg_bin") {
-          reg <- apply(fitobj$rpe, c(1,2), function(x) { if (x < 0) 1 else 0 }) #1/0 binarized NPE
-        } else if (regressors[r] == "rt") {
-          reg <- fitobj$RTraw #parametric regressor for overall reaction time (from Badre)
-        } else {
-          message("Assuming that ", regressors[r], " is a task indicator function.")
-          reg <- array(1.0, dim=dim(fitobj$RTraw)) #standard task indicator regressor
-        }
-        
-        #replace missing values with 0 for clarity in convolution
-        reg[which(is.na(reg))] <- 0
-        
-        #determine onset times for events
-        if (event_onsets[r] == "clock_onset") {
-          times <- fitobj$clock_onset
-        } else if (event_onsets[r] == "feedback_onset") {
-          times <- fitobj$feedback_onset
-        } else if (event_onsets[r] == "iti_onset") {
-          times <- fitobj$iti_onset
-        } else if (event_onsets[r] == "rt") {
-          times <- fitobj$clock_onset + fitobj$RTraw/1000
-        }
-        
-        if (durations[r] %in% c("rt", "clock_duration")) { #time of clock on screen
-          durmat <- fitobj$RTraw/1000
-        } else if (durations[r] == "feedback_duration") {
-          durmat <- fitobj$iti_onset - fitobj$feedback_onset
-        } else if (durations[r] == "iti_duration") {
-          #need to lag clock matrix: iti duration is: clock_onset(t+1) - iti_onset(t)
-          #lag_clock <- apply(clock_onset)
-        } else if (!is.na(suppressWarnings(as.numeric(durations[r])))) {
-          #user-specified scalar duration (not currently supporting a user-specified per-regressor vector of durations) 
-          durmat <- array(as.numeric(durations[r]), dim=dim(fitobj$RTraw))
-        } else {
-          stop("Unknown duration keyword:", durations[r])
-        }
-                
-        #fsl-style 3-column format: onset duration value
-        output <- lapply(1:nrow(reg), function(run) {
-              cbind(onset=times[run,] - timeOffset[run], duration=durmat[run,], value=reg[run,])
-            })
-
-        names(output) <- paste0("run", 1:nrow(reg))
-        
-        return(output)
-      })
+  #use an explicit cbind of the lapply to create a runs x regressors list
+  dmat <- do.call(cbind, lapply(1:length(regressors), function(r) {
+            #Note: all of the regressor computations here should result in nruns x ntrials matrices
+            #regressor values
+            if (regressors[r] == "rel_uncertainty") {
+              #trialwise relative uncertainty about fast versus slow responses: subtract variances 
+              reg <- abs(fitobj$bfs_var_fast - fitobj$bfs_var_slow)
+            } else if (regressors[r] == "mean_uncertainty") {
+              reg <- abs(fitobj$bfs_var_fast + fitobj$bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
+            } else if (regressors[r] == "ev") {
+              reg <- fitobj$ev #expected value
+            } else if (regressors[r] == "rpe") {
+              reg <- fitobj$rpe #rpe maintaining sign
+            } else if (regressors[r] == "rpe_pos") {
+              reg <- lapply(fitobj$rpe, function(run) { sapply(run, function(x) { if (is.na(x) || x > 0) x else 0 }) }) #positive prediction error
+            } else if (regressors[r] == "rpe_pos_sqrt") {
+              reg <- lapply(fitobj$rpe, function(run) { sapply(run, function(x) { if (is.na(x) || x > 0) sqrt(x) else 0 }) }) #positive prediction error
+            } else if (regressors[r] == "rpe_pos_bin") {
+              reg <- lapply(fitobj$rpe, function(run) { sapply(run, function(x) { if (is.na(x)) NA else if (x > 0) 1 else 0 }) }) #1/0 binarized PPE
+            } else if (regressors[r] == "rpe_neg") {
+              reg <- lapply(fitobj$rpe, function(run) { sapply(run, function(x) { if (is.na(x) || x < 0) abs(x) else 0 }) }) #abs so that greater activation scales with response to negative PE
+            } else if (regressors[r] == "rpe_neg_sqrt") {
+              reg <- lapply(fitobj$rpe, function(run) { sapply(run, function(x) { if (is.na(x) || x < 0) sqrt(abs(x)) else 0 }) }) #abs so that greater activation scales with response to negative PE
+            } else if (regressors[r] == "rpe_neg_bin") {
+              reg <- lapply(fitobj$rpe, function(run) { sapply(run, function(x) { if (is.na(x)) NA else if (x < 0) 1 else 0 }) }) #1/0 binarized NPE
+            } else if (regressors[r] == "rt") {
+              reg <- fitobj$RTraw #parametric regressor for overall reaction time (from Badre)
+            } else {
+              message("Assuming that ", regressors[r], " is a task indicator function.")
+              reg <- lapply(fitobj$RTraw, function(run) { rep(1.0, length(run)) }) #standard task indicator regressor
+            }
+            
+            #replace missing values with 0 for clarity in convolution
+            reg <- lapply(reg, function(run) { run[which(is.na(run))] <- 0; return(run) })
+            
+            #determine onset times for events
+            if (event_onsets[r] == "clock_onset") {
+              times <- fitobj$clock_onset
+            } else if (event_onsets[r] == "feedback_onset") {
+              times <- fitobj$feedback_onset
+            } else if (event_onsets[r] == "iti_onset") {
+              times <- fitobj$iti_onset
+            } else if (event_onsets[r] == "rt") {
+              times <- lapply(1:fitobj$nruns, function(run) { fitobj$clock_onset[[run]] + fitobj$RTraw[[run]]/1000 })
+            }
+            
+            if (durations[r] %in% c("rt", "clock_duration")) { #time of clock on screen
+              durmat <- lapply(fitobj$RTraw, function(run) { run/1000 })
+            } else if (durations[r] == "feedback_duration") {
+              durmat <- lapply(1:fitobj$nruns, function(run) { fitobj$iti_onset[[run]] - fitobj$feedback_onset[[run]] })
+            } else if (durations[r] == "iti_duration") {
+              #need to lag clock matrix: iti duration is: clock_onset(t+1) - iti_onset(t)
+              #lag_clock <- apply(clock_onset)
+            } else if (!is.na(suppressWarnings(as.numeric(durations[r])))) {
+              #user-specified scalar duration (not currently supporting a user-specified per-regressor vector of durations)
+              durmat <- lapply(fitobj$RTraw, function(run) { rep(as.numeric(durations[r]), length(run)) })
+            } else {
+              stop("Unknown duration keyword:", durations[r])
+            }
+            
+            #fsl-style 3-column format: onset duration value
+            output <- lapply(1:length(reg), function(run) {
+                  cbind(onset=times[[run]] - timeOffset[run], duration=durmat[[run]], value=reg[[run]])
+                })
+            
+            names(output) <- paste0("run", 1:length(reg))
+            
+            return(output)
+          }))
   
   dimnames(dmat)[[2L]] <- regressors
   
   #only retain runs to be analyzed
-  dmat <- dmat[runsToOutput,] 
+  dmat <- dmat[runsToOutput,,drop=FALSE] 
   
   #returns a 2-d list of runs x regressors. Needs to stay as list since runs vary in length, so aggregate is not rectangular
   #each element in the 2-d list is a 2-d matrix: trials x (onset, duration, value) 
@@ -175,7 +176,7 @@ build_design_matrix=function(
     return(x)
     
   }
-
+  
   #concatenate regressors across runs by adding timing from MR files.
   runtiming <- cumsum(runVolumes)*tr #timing in seconds of the start of successive runs
   
@@ -211,7 +212,7 @@ build_design_matrix=function(
     #issue with convolution of each run separately is that the normalization and mean centering are applied within-run
     #in the case of EV, for example, this will always scale the regressor in terms of relative differences in value within run, but
     #will fail to capture relative differences across run (e.g., if value tends to be higher in run 8 than run 1)
-        
+    
     dmat_sumruns <- lapply(1:dim(dmat)[2L], function(reg) {
           thisreg <- dmat[,reg]
           concattiming <- do.call(rbind, lapply(1:length(thisreg), function(run) {
@@ -219,7 +220,7 @@ build_design_matrix=function(
                     timing[,"onset"] <- timing[,"onset"] + ifelse(run > 1, runtiming[run-1], 0)
                     timing
                   }))
-
+          
           #convolve concatenated events with hrf
           all.convolve <- convolve_regressor(concattiming, sum(runVolumes), normalizations[reg], high_pass=high_pass)
           
@@ -237,13 +238,13 @@ build_design_matrix=function(
           names(df) <- dimnames(dmat)[[2L]]
           return(df)
         })
-  
+    
   }
-
+  
   #handle the addition of temporal dervitives
   if (add_derivs) {
     message("Adding temporal derivatives of each substantive regressor orthogonalized against design matrix")
-
+    
     dmat.convolve <- lapply(dmat.convolve, function(run) {
           dmat <- as.matrix(run) #need as a matrix for lm call
           
@@ -260,7 +261,7 @@ build_design_matrix=function(
         })
   }
   
- 
+  
 #  quick code to test that the design matrix regressors are sensible in their heights and (de)correlation with each other after convolution. 
 #  In particular, verify that zero is not being treated as an "event" by the parametric convolution after mean centering     
 #  browser()
@@ -293,7 +294,7 @@ build_design_matrix=function(
             #now mean center values (unless there is no variation, such as a task indicator function)
             if (sd(regout[,"value"]) > 0) { regout[,"value"] <- regout[,"value"] - mean(regout[,"value"]) }            
           } 
-			
+          
           fname <- paste0("run", runsToOutput[i], "_", dimnames(dmat)[[2L]][reg], "_FSL3col.txt")
           write.table(regout, file=file.path(output_directory, fname), sep="\t", eol="\n", col.names=FALSE, row.names=FALSE)
         }
@@ -332,7 +333,7 @@ build_design_matrix=function(
       #magical code from here: http://stackoverflow.com/questions/22993637/efficient-r-code-for-finding-indices-associated-with-unique-values-in-vector
       first_onset_duration <- paste(regonsets[1,], regdurations[1,]) #use combination of onset and duration to determine unique dmBLOCK regressors
       dt = as.data.table(first_onset_duration)[, list(comb=list(.I)), by=first_onset_duration] #just matches on first row (should work in general)
-           
+      
       lapply(dt$comb, function(comb) {
             combmat <- dmat[,comb, drop=F]
             #onsets and durations are constant, amplitudes vary
@@ -488,7 +489,7 @@ visualizeDesignMatrix <- function(d, outfile=NULL, runboundaries=NULL, events=NU
   if (!is.null(runboundaries)) {
     g <- g + geom_vline(xintercept=runboundaries, color=colors[1L])
   }
-    
+  
   if (!is.null(events)) {
     for (i in 1:length(events)) {
       g <- g + geom_vline(xintercept=events[[i]], color=colors[i+1])
@@ -651,7 +652,7 @@ clockdata_subject <- setRefClass(
                 global_trial_number=d$trial,
                 rew_function=as.character(d$rewFunc[1L]),
                 orig_data_frame=d)
-
+            
             if ("emotion" %in% names(d)) { r$run_condition <- as.character(d$emotion[1L]) }            
             if ("clock_onset" %in% names(d)) { r$clock_onset <- d$clock_onset }
             if ("feedback_onset" %in% names(d)) { r$feedback_onset <- d$feedback_onset }
@@ -745,11 +746,12 @@ clockdata_subject <- setRefClass(
 clock_fit <- setRefClass(
     Class="clock_fit",
     fields=list(
+        nruns="numeric", #scalar number of total runs
         ntrials="numeric", #scalar of total trials
-        RTobs="matrix", #trial vector (run), run x trial matrix (subject), or subject x run x trial matrix (group)
-        RTraw="matrix", #original RTs. RTobs is the RTs that were fitted (e.g., could be raw, smoothed, differenced, etc.)
-        RTpred="matrix",
-        Reward="matrix",
+        RTobs="list", #trial vector (run), run x trial matrix (subject), or subject x run x trial matrix (group)
+        RTraw="list", #original RTs. RTobs is the RTs that were fitted (e.g., could be raw, smoothed, differenced, etc.)
+        RTpred="list",
+        Reward="list",
         total_SSE="numeric", #scalar of total sum of squared errors
         theta="matrix", #named matrix of parameters and bounds
         SSE="numeric", #vector or matrix of SSEs over subjects and runs
@@ -759,15 +761,15 @@ clock_fit <- setRefClass(
         profile_data="list",
         opt_data="list", #list of results from optimizer
         pred_contrib="list",
-        clock_onset="matrix",
-        feedback_onset="matrix",
-        iti_onset="matrix",
+        clock_onset="list",
+        feedback_onset="list",
+        iti_onset="list",
         bfs_var_fast="matrix", #trialwise variance of beta distribution for fast responses
         bfs_var_slow="matrix",
         bfs_mean_fast="matrix",
         bfs_mean_slow="matrix",
-        ev="matrix", #expected value
-        rpe="matrix", #reward prediction error
+        ev="list",
+        rpe="list",
         run_condition="character", #vector of run conditions
         rew_function="character" #vector of reward contingencies        
     ),
@@ -786,19 +788,21 @@ clock_fit <- setRefClass(
             clock_data <- list(runs=list(clock_data))
           }
           
+          #Nov 2015: transitioned to list storage for multi-run attributes (e.g., RTs) to allow for unequal numbers of trials across runs.
+          if (length(nruns)==0L) { nruns <<- length(clock_data$runs) }
           if (length(ntrials)==0L) { ntrials <<- sum(unlist(lapply(clock_data$runs, function(r) { r$w$ntrials } ))) }
-          if (length(RTobs)==0L) { RTobs <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$RTobs })) } #FIXME
-          if (length(RTraw)==0L) { RTraw <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$RTraw })) } #FIXME
-          if (length(RTpred)==0L) { RTpred <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$RTpred })) }
-          if (length(Reward)==0L) { Reward <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))  }
-          if (length(clock_onset)==0L) { clock_onset <<- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$clock_onset) == 0 ) NA else r$clock_onset })) }
-          if (length(feedback_onset)==0L) { feedback_onset <<- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$feedback_onset) == 0 ) NA else r$feedback_onset })) }
-          if (length(iti_onset)==0L) { iti_onset <<- do.call(rbind, lapply(clock_data$runs, function(r) { if(length(r$iti_onset) == 0 ) NA else r$iti_onset })) }
+          if (length(RTobs)==0L) { RTobs <<- lapply(clock_data$runs, function(r) { r$RTobs }) } #FIXME
+          if (length(RTraw)==0L) { RTraw <<- lapply(clock_data$runs, function(r) { r$RTraw }) } #FIXME
+          if (length(RTpred)==0L) { RTpred <<- lapply(clock_data$runs, function(r) { r$w$RTpred }) }
+          if (length(Reward)==0L) { Reward <<- lapply(clock_data$runs, function(r) { r$Reward })  }
+          if (length(clock_onset)==0L) { clock_onset <<- lapply(clock_data$runs, function(r) { if(length(r$clock_onset) == 0 ) NA else r$clock_onset }) }
+          if (length(feedback_onset)==0L) { feedback_onset <<- lapply(clock_data$runs, function(r) { if(length(r$feedback_onset) == 0 ) NA else r$feedback_onset }) }
+          if (length(iti_onset)==0L) { iti_onset <<- lapply(clock_data$runs, function(r) { if(length(r$iti_onset) == 0 ) NA else r$iti_onset }) }
           if (length(rew_function)==0L) { rew_function <<- do.call(c, lapply(clock_data$runs, function(r) { r$rew_function })) }
           if (length(run_condition)==0L) { run_condition <<- do.call(c, lapply(clock_data$runs, function(r) { r$run_condition })) }
-          if (length(ev)==0L) { ev <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$V })) } #expected value
-          if (length(rpe)==0L) { rpe <<- Reward - ev } #better or worse than expected?
-
+          if (length(ev)==0L) { ev <<- lapply(clock_data$runs, function(r) { r$w$V }) } #expected value
+          if (length(rpe)==0L) { rpe <<- lapply(1:length(Reward), function(r) { Reward[[r]] - ev[[r]] }) } #better or worse than expected?
+          
           #get a list prediction contributions of each parameter per run: each element is a params x trials matrix
           if (length(pred_contrib)==0L) { 
             pred_contrib <<- lapply(clock_data$runs, function(r) { 
