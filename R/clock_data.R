@@ -76,10 +76,14 @@ build_design_matrix=function(
             #Note: all of the regressor computations here should result in nruns x ntrials matrices
             #regressor values
             if (regressors[r] == "rel_uncertainty") {
-              #trialwise relative uncertainty about fast versus slow responses: subtract variances 
-              reg <- abs(fitobj$bfs_var_fast - fitobj$bfs_var_slow)
+              #trialwise relative uncertainty about fast versus slow responses: subtract variances
+              reg <- lapply(1:length(fitobj$bfs_var_fast), function(run) {
+                    abs(fitobj$bfs_var_fast[[run]] - fitobj$bfs_var_slow[[run]])
+                  })
             } else if (regressors[r] == "mean_uncertainty") {
-              reg <- abs(fitobj$bfs_var_fast + fitobj$bfs_var_slow)/2 #trialwise average uncertainty for fast and slow responses
+              reg <- lapply(1:length(fitobj$bfs_var_fast), function(run) {
+                    abs(fitobj$bfs_var_fast[[run]] + fitobj$bfs_var_slow[[run]])/2
+                  })
             } else if (regressors[r] == "ev") {
               reg <- fitobj$ev #expected value
             } else if (regressors[r] == "rpe") {
@@ -764,10 +768,10 @@ clock_fit <- setRefClass(
         clock_onset="list",
         feedback_onset="list",
         iti_onset="list",
-        bfs_var_fast="matrix", #trialwise variance of beta distribution for fast responses
-        bfs_var_slow="matrix",
-        bfs_mean_fast="matrix",
-        bfs_mean_slow="matrix",
+        bfs_var_fast="list", #trialwise variance of beta distribution for fast responses
+        bfs_var_slow="list",
+        bfs_mean_fast="list",
+        bfs_mean_slow="list",
         ev="list",
         rpe="list",
         run_condition="character", #vector of run conditions
@@ -814,10 +818,10 @@ clock_fit <- setRefClass(
           
           if (exists("betaFastSlow", envir=clock_data$runs[[1L]]$w, inherits=FALSE)) {
             hasBeta <- TRUE
-            bfs_var_fast <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_fast })) #trialwise estimate of uncertainty re: fast responses
-            bfs_var_slow <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_slow })) #trialwise estimate of uncertainty re: slow responses
-            bfs_mean_fast <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_fast })) #trialwise estimate of mean value for fast responses
-            bfs_mean_slow <<- do.call(rbind, lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_slow })) #trialwise estimate of mean value for slow responses
+            bfs_var_fast <<- lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_fast }) #trialwise estimate of uncertainty re: fast responses
+            bfs_var_slow <<- lapply(clock_data$runs, function(r) { r$w$betaFastSlow$var_slow }) #trialwise estimate of uncertainty re: slow responses
+            bfs_mean_fast <<- lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_fast }) #trialwise estimate of mean value for fast responses
+            bfs_mean_slow <<- lapply(clock_data$runs, function(r) { r$w$betaFastSlow$mean_slow }) #trialwise estimate of mean value for slow responses
           } else { hasBeta <- FALSE }
         },
         plotRTs=function() {
