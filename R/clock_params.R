@@ -553,7 +553,7 @@ getRTUpdate.p_epsilonBeta=function(obj, theta) {
   
   obj$w$cur_value <- theta[obj$theta_lookup]
   
-  #emo linear
+  #emo linear (note that this necessarily collides with use of by="run_condition")
   if (length(obj$w$cur_value) == 2L) {
     if (obj$w$run_condition == "fear") { obj$w$emoLinear <- -1*obj$w$cur_value["tau"]        
     } else if (obj$w$run_condition == "happy") { obj$w$emoLinear <- 1*obj$w$cur_value["tau"]        
@@ -562,13 +562,14 @@ getRTUpdate.p_epsilonBeta=function(obj, theta) {
   } else {
     obj$w$emoLinear <- 0 #no emotion tau model (just usual eps)
   }
+  
   eval(
       quote({                
             if (RT_last > betaFastSlow$local_RT_last) {
               #explore parameter scales the difference in SDs between the fast and slow beta dists
-              explore <- -1.0*(cur_value["epsilonBeta"] + emoLinear) * (sqrt(betaFastSlow$var_fast[cur_trial]) - sqrt(betaFastSlow$var_slow[cur_trial]))  # speed up if more uncertain about fast responses
+              explore <- -1.0*(cur_value[grepl("epsilonBeta", names(cur_value))] + emoLinear) * (sqrt(betaFastSlow$var_fast[cur_trial]) - sqrt(betaFastSlow$var_slow[cur_trial]))  # speed up if more uncertain about fast responses
             } else {
-              explore <- +1.0*(cur_value["epsilonBeta"] + emoLinear) * (sqrt(betaFastSlow$var_slow[cur_trial]) - sqrt(betaFastSlow$var_fast[cur_trial])) #slow down if more uncertain about slow responses
+              explore <- +1.0*(cur_value[grepl("epsilonBeta", names(cur_value))] + emoLinear) * (sqrt(betaFastSlow$var_slow[cur_trial]) - sqrt(betaFastSlow$var_fast[cur_trial])) #slow down if more uncertain about slow responses
             }
             
             # reset if already explored in this direction last trial (see supplement of Frank et al 09)

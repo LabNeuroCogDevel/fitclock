@@ -217,7 +217,7 @@ clock_model <- setRefClass(
             has_base <- unique(sapply(params, function(p) { ifelse(is.null(p$base_name), NA_character_, p$base_name) } ))
             
             if (!all(is.na(has_base))) { #only need to undo previous by-condition params if they exist
-              params <- lapply(params, function(p) {
+              params <<- lapply(params, function(p) {
                     p$name <- p$base_name #undo by-condition
                     p$init_value <- p$init_value[1L:length(p$base_name)] #only keep the original base parameters (in the case of stickyChoice, would a by-condition variation blow this up?)
                     p$cur_value <- p$cur_value[1L:length(p$base_name)]
@@ -518,7 +518,6 @@ clock_model <- setRefClass(
             ##at the moment, only works for subject and run fits, not group
             fit_output$populate_fit(clock_data) #add various fields to fit such as clock_onset
             fit_output$theta <- as.matrix(.self$list_params())
-            
             
             nparams <- length(fit_output$opt_data$par) #number of free parameters
             fit_output$SSE <- SSE
