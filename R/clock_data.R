@@ -102,6 +102,9 @@ build_design_matrix=function(
               reg <- lapply(fitobj$rpe, function(run) { sapply(run, function(x) { if (is.na(x)) NA else if (x < 0) 1 else 0 }) }) #1/0 binarized NPE
             } else if (regressors[r] == "rt") {
               reg <- fitobj$RTraw #parametric regressor for overall reaction time (from Badre)
+            } else if (grepl("^sceptic_", regressors[r])) {
+              #all sceptic parameters just get copied across directly
+              reg <- fitobj[[r]] #name must match 
             } else {
               message("Assuming that ", regressors[r], " is a task indicator function.")
               reg <- lapply(fitobj$RTraw, function(run) { rep(1.0, length(run)) }) #standard task indicator regressor
