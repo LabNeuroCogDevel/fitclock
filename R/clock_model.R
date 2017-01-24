@@ -689,7 +689,7 @@ deltavalue_model <- setRefClass(
     Class="deltavalue_model",
     fields=list(
         theta="matrix", #matrix of param ests, bounds, starting values
-        V="matrix", #runs x trials matrix of learned (expected) value
+        V="list", #list of runs, where each element is a vector of learned (expected) values per trial
         clock_data="ANY", #allow this to be dataset, subject, or run,
         fit_result="clock_fit", #not used at the moment
         carryover_value="logical"
@@ -714,9 +714,11 @@ deltavalue_model <- setRefClass(
         reset_v=function() {
           if (!is.null(clock_data)) {
             if (class(clock_data) == "clockdata_subject") {
-              V <<- matrix(NA_real_, nrow=length(clock_data$runs), ncol=length(clock_data$runs[[1L]]$Reward)) #runs x trials
+              V <<- lapply(clock_data$runs, function(run) { rep(NA_real_, length(run$Reward))})
+              #V <<- matrix(NA_real_, nrow=length(clock_data$runs), ncol=length(clock_data$runs[[1L]]$Reward)) #runs x trials
             } else if (class(clock_data) == "clockdata_run") {
-              V <<- matrix(NA_real_, nrow=1, ncol=length(clock_data$Reward)) #1 x trials
+              V <<- list(rep(NA_real_, length(clock_data$Reward)))
+              #V <<- matrix(NA_real_, nrow=1, ncol=) #1 x trials
             }
           }
         },
@@ -730,7 +732,7 @@ deltavalue_model <- setRefClass(
             message("fit converged.")
             SSE <- optResult$objective
             theta[,"cur"] <<- optResult$par
-            message("Fitted learning rate: ", plyr::round_any(theta[,"cur"], .0001))
+            message("Fitted learning rate: ", paste(round(theta[,"cur"], 4), collapse=", "))
           }
           
           f <- clock_fit(ev=V, SSE=SSE, theta=theta, elapsed_time=unclass(elapsed_time), opt_data=optResult)
@@ -743,28 +745,30 @@ deltavalue_model <- setRefClass(
   
           #this would be more efficient in $fit. But leads to redundant code, and fit isn't too slow anyway.
           if (class(clock_data)=="clockdata_subject") {     
-            Reward <- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))
+            #Reward <- do.call(rbind, lapply(clock_data$runs, function(r) { r$Reward }))
+            Reward <- lapply(clock_data$runs, function(r) { r$Reward })
           } else if (class(clock_data)=="clockdata_run") {
-            Reward <- matrix(clock_data$Reward, nrow=1)
+            #Reward <- matrix(clock_data$Reward, nrow=1)
+            Reward <- list(clock_data$Reward)
           }
           
           reset_v()
           hasBeta <- "betaV" %in% names(params)
-          for (r in 1:nrow(Reward)) {
+          for (r in 1:length(Reward)) {
             if (r > 1L && carryover_value) {
-              V[r, 1] <<- V[r-1, ncol(V)] #use value from last trial of prior run
-            } else { V[r, 1] <<- 0 }
+              V[[r]][1] <<- V[[r-1]][length(V[[r-1]])] #use value from last trial of prior run
+            } else { V[[r]][1] <<- 0 }
 
-            for (t in 2:ncol(Reward)) {
+            for (t in 2:length(Reward[[r]])) {
               if (hasBeta) {
-                V[r, t] <<- V[r, t-1] + if (Reward[r,t] > 0) { params["alphaV"] } else { params["betaV"] } *(Reward[r, t-1] - V[r, t-1])  
+                V[[r]][t] <<- V[[r]][t-1] + if (Reward[[r]][t] > 0) { params["alphaV"] } else { params["betaV"] } *(Reward[[r]][t-1] - V[[r]][t-1])  
               } else {
-                V[r, t] <<- V[r, t-1] + params["alphaV"]*(Reward[r, t-1] - V[r, t-1])
+                V[[r]][t] <<- V[[r]][t-1] + params["alphaV"]*(Reward[[r]][t-1] - V[[r]][t-1])
               }
             }
           }
           
-          SSE <- sum((Reward - V)^2)
+          SSE <- sum(unlist(lapply(1:length(Reward), function(r) { Reward[[r]] - V[[r]] } ))^2) #   (Reward - do.call(rbind,V))^2)
           if (returnFit) {
             #return a fit object based on predicted values.
             f <- clock_fit(ev=V, SSE=SSE, theta=theta)

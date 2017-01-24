@@ -5,7 +5,7 @@
 #'   2) pre-convolution HRF max=1.0 normalization for long events (15+ sec) -- height of HRF is modulated by duration of event: identical to dmUBLOCK(0)
 #' @export
 hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, normeach=FALSE, rm_zeros=TRUE,
-    center_values=TRUE, demean_convolved=FALSE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
+    center_values=TRUE, parmax1=FALSE, demean_convolved=FALSE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
   
   #this is my hacky way to figure out the peak value 
   #obtain an estimate of the peak HRF height of a long event convolved with the HRF at these settings of a1, b1, etc.
@@ -39,8 +39,7 @@ hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, norm
   if (center_values && !all(values==1.0)) {
     values <- values - mean(values)
   }
-  
-    
+      
   #for each event, convolve it with hrf, normalize, then sum convolved events to get full timecourse
   normedEvents <- sapply(1:length(times), function(i) {
         #obtain unit-convolved duration-modulated regressor to define HRF prior to modulation by parametric regressor
@@ -56,6 +55,16 @@ hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, norm
   
   tc_conv <- apply(normedEvents, 1, sum)
   
+  #allow for the convolved regressor to be rescaled to have a maximum height of 1.0. This normalizes the range of the regressor across runs and subjects
+  #such that the betas for the regressor are on similar scales, just with a change of gain... experimenting with this currently given SCEPTIC DAUC regressors
+  #which tend to be highly skewed, potentially driven by behavioral parameter scaling challenges. Note that this interacts with the normeach setting such that
+  #for normeach=FALSE (durmax_1.0), the height of 1.0 will reflect a combination of the parameter and the duration. The interpretation is somewhat cleaner under
+  #normeach=TRUE (evtmax_1.0) since the HRF has height of 1.0 for each stimulus, and then rescaling to max 1.0 after convolution with the parametric value
+  #will change the relative heights of the stimuli solely according to the parameter.
+  if (parmax1) {
+    tc_conv <- tc_conv/max(tc_conv)
+  }
+  
   #grand mean center convolved regressor
   if (demean_convolved) { tc_conv <- tc_conv - mean(tc_conv) }
   
@@ -70,7 +79,7 @@ hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, norm
 #' to dissociate it from stimulus occurrence (when event regressor also in model)
 #' 
 #' @export
-fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1), center_values=FALSE, rm_zeros=TRUE,
+fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1), center_values=FALSE, rm_zeros=TRUE, convolve=TRUE,
     rt=3, times=NULL, demean=TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
   
   mygamma <- function(x, a1, a2, b1, b2, c) {
@@ -143,10 +152,14 @@ fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1), center
   hrf <- convolve(stimulus,mygamma(((40*scale)+scans):1, a1, a2, b1/rt, b2/rt, cc))/scale
   hrf <- hrf[-(1:(20*scale))][1:scans]
   hrf <- hrf[unique((scale:scans)%/%scale)*scale]
-  
   dim(hrf) <- c(scans/scale,1)
   
-  if (demean) {
+  if (!convolve) {
+    #just return the box car without convolving by HRF
+    stimulus <- stimulus[-(1:(20*scale))][1:scans] #remove zero padding
+    stimulus <- stimulus[unique((scale:scans)%/%scale)*scale] #subset the elements of the upsampled grid back onto the observed TRs
+    return(stimulus)
+  } else if (demean) {
     hrf - mean(hrf)
   } else {
     hrf

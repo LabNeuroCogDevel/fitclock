@@ -28,8 +28,10 @@ build_design_matrix=function(
     writeTimingFiles=NULL,
     output_directory="run_timing",
     tr=1.0, #TR of scan in seconds
+    convolve=TRUE, #whether to convolve the regressors with the HRF
     convolve_wi_run=TRUE, #whether to mean center parametric regressors within runs before convolution
     add_derivs=FALSE, #whether to add temporal derivatives for each column after convolution
+    parmax1=FALSE, #whether to rescale a convolved regressor to max=1.0 after convolution (normalize scaling across runs and subjects)
     high_pass=NULL #whether to apply a high-pass filter to the design matrix (e.g., to match fmri preprocessing)
 ) {
   
@@ -53,7 +55,7 @@ build_design_matrix=function(
     message("Assuming that last fMRI volume was 12 seconds after the onset of the last ITI.")
     message(paste0("Resulting lengths: ", paste(runVolumes, collapse=", ")))
   } else {
-    if (length(runVolumes) != nrow(fitobj$RTraw)) { warning("Length of runVolumes is ", length(runVolumes), ", but number of runs in fit object is ", nrow(fitobj$RTraw)) }
+    if (length(runVolumes) != length(fitobj$RTraw)) { warning("Length of runVolumes is ", length(runVolumes), ", but number of runs in fit object is ", nrow(fitobj$RTraw)) }
   }
   
   if (length(dropVolumes) < length(runVolumes)) {
@@ -104,7 +106,7 @@ build_design_matrix=function(
               reg <- fitobj$RTraw #parametric regressor for overall reaction time (from Badre)
             } else if (grepl("^sceptic_", regressors[r])) {
               #all sceptic parameters just get copied across directly
-              reg <- fitobj[[r]] #name must match 
+              reg <- fitobj$sceptic[[sub("^sceptic_", "", regressors[r], perl=TRUE)]] #name must match 
             } else {
               message("Assuming that ", regressors[r], " is a task indicator function.")
               reg <- lapply(fitobj$RTraw, function(run) { rep(1.0, length(run)) }) #standard task indicator regressor
@@ -166,13 +168,13 @@ build_design_matrix=function(
     #see hrf_convolve_normalize for implementation details
     if (normalization == "evtmax_1.0") {
       #each event is 1.0-normalized
-      x <- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=TRUE, center_values=center_values)
+      x <- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=TRUE, center_values=center_values, parmax1=parmax1)
     } else if (normalization == "durmax_1.0") {
       #peak amplitude of hrf is 1.0 (before multiplying by parametric value) based on stimulus duration (stims > 10s approach 1.0)
-      x <- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=FALSE, center_values=center_values)
+      x <- hrf_convolve_normalize(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, normeach=FALSE, center_values=center_values, parmax1=parmax1)
     } else {
       #no normalization
-      x <- fmri.stimulus(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, center_values=center_values)
+      x <- fmri.stimulus(scans=vols, values=reg[,"value"], times=reg[,"onset"], durations=reg[,"duration"], rt=tr, center_values=center_values, convolve=convolve, parmax1=parmax1)
     }
     
     #apply high-pass filter after convolution if requested
@@ -290,6 +292,30 @@ build_design_matrix=function(
   #Write timing files to disk for analysis by AFNI, FSL, etc.
   if (!is.null(writeTimingFiles)) {
     dir.create(output_directory, recursive=TRUE, showWarnings=FALSE)
+    
+    if ("convolved" %in% writeTimingFiles) {
+      #write convolved regressors
+      #AFNI amplitude modulation forces a mean and deviation from the mean regressor for each effect
+      #as a result, if two parametric influences occur at a given time, it leads to perfect collinearity.
+      conv_concat <- list()
+      lapply(1:length(dmat.convolve), function(r) {
+            lapply(1:length(dmat.convolve[[r]]), function(v) {
+                  regName <- names(dmat.convolve[[r]])[v]
+                  fname <- paste0(names(dmat.convolve)[r], "_", regName, ".1D")
+                  toWrite <- plyr::round_any(dmat.convolve[[r]][[v]], .000001)
+                  conv_concat[[regName]] <<- c(conv_concat[[regName]], toWrite) #add for concatenated 1D file
+                  write.table(toWrite, file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+                })              
+          })
+      
+      #write run-concatenated convolved regressors (for use in AFNI)
+      lapply(1:length(conv_concat), function(v) {
+            fname <- paste0(names(conv_concat)[v], "_concat.1D")
+            write.table(conv_concat[[v]], file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
+          })
+      
+    }
+    
     if ("FSL" %in% writeTimingFiles) {
       for (i in 1:dim(dmat)[1L]) {
         for (reg in 1:dim(dmat)[2L]) {
@@ -369,26 +395,6 @@ build_design_matrix=function(
             writeLines(runvec, file.path(output_directory, paste0(paste(dimnames(combmat)[[2L]], collapse="_"), "_dmBLOCK.txt")))
           })
       
-      
-      #write convolved regressors
-      #AFNI amplitude modulation forces a mean and deviation from the mean regressor for each effect
-      #as a result, if two parametric influences occur at a given time, it leads to perfect collinearity.
-      conv_concat <- list()
-      lapply(1:length(dmat.convolve), function(r) {
-            lapply(1:length(dmat.convolve[[r]]), function(v) {
-                  regName <- names(dmat.convolve[[r]])[v]
-                  fname <- paste0(names(dmat.convolve)[r], "_", regName, ".1D")
-                  toWrite <- plyr::round_any(dmat.convolve[[r]][[v]], .000001)
-                  conv_concat[[regName]] <<- c(conv_concat[[regName]], toWrite) #add for concatenated 1D file
-                  write.table(toWrite, file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
-                })              
-          })
-      
-      #write run-concatenated convolved regressors (for use in AFNI)
-      lapply(1:length(conv_concat), function(v) {
-            fname <- paste0(names(conv_concat)[v], "_concat.1D")
-            write.table(conv_concat[[v]], file=file.path(output_directory, fname), sep="\n", eol="\n", quote=FALSE, col.names=FALSE, row.names=FALSE)
-          })
     }
   }
   
@@ -400,17 +406,17 @@ build_design_matrix=function(
         
         #remove any constant columns (e.g., task indicator regressor for clock) so that VIF computation is sensible
         zerosd <- sapply(cmat, sd)
-        cmat <- cmat[,zerosd != 0.0]
-        
-        if (ncol(cmat) == 0L) {
+        cmat_noconst <- cmat[,zerosd != 0.0, drop=FALSE]
+
+        if (ncol(cmat_noconst) == 0L) {
           #if only task indicator regressors are included, then they cannot be collinear before convolution since there is no variability
           return(list(r=NA_real_, vif=NA_real_))
         } else {
-          corvals <- cor(cmat, use="pairwise.complete.obs")
-          vifMat <- data.frame(cbind(dummy=rnorm(nrow(cmat)), cmat)) #add dummy constant for vif
-          vifForm <- as.formula(paste("dummy ~ 1 +", paste(names(cmat), collapse=" + ")))
+          corvals <- suppressWarnings(cor(cmat, use="pairwise.complete.obs")) #drop warnings about SD of 0 since we want it to populate NAs there.
+          vifMat <- data.frame(cbind(dummy=rnorm(nrow(cmat_noconst)), cmat_noconst)) #add dummy constant for vif
+          vifForm <- as.formula(paste("dummy ~ 1 +", paste(names(cmat_noconst), collapse=" + ")))
           
-          varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { NA }) #return NA if failure
+          varInfl <- tryCatch(car::vif(lm(vifForm, data=vifMat)), error=function(e) { rep(NA, ncol(cmat_noconst)) }) #return NA if failure
           return(list(r=corvals, vif=varInfl))  
         }
       })
@@ -482,7 +488,7 @@ concatDesignRuns <- function(d) {
 visualizeDesignMatrix <- function(d, outfile=NULL, runboundaries=NULL, events=NULL, includeBaseline=TRUE) {
   
   if (!includeBaseline) {
-    d <- d[,!grepl("run[0-9]+base", colnames(d))]
+    d <- d[,!grepl("(run[0-9]+)*base", colnames(d))]
   }
   
   print(round(cor(d), 3))
@@ -777,6 +783,7 @@ clock_fit <- setRefClass(
         bfs_mean_slow="list",
         ev="list",
         rpe="list",
+        sceptic="list",
         run_condition="character", #vector of run conditions
         rew_function="character" #vector of reward contingencies        
     ),
