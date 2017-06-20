@@ -80,7 +80,7 @@ hrf_convolve_normalize <- function(scans, times, durations, values, rt=1.0, norm
 #' 
 #' @export
 fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1), center_values=FALSE, rm_zeros=TRUE, convolve=TRUE,
-    rt=3, times=NULL, demean=TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35) {
+    rt=3, times=NULL, demean=TRUE, a1 = 6, a2 = 12, b1 = 0.9, b2 = 0.9, cc = 0.35, parmax1=FALSE) {
   
   mygamma <- function(x, a1, a2, b1, b2, c) {
     d1 <- a1 * b1
@@ -153,6 +153,10 @@ fmri.stimulus=function(scans=1, onsets=c(1), durations=c(1), values=c(1), center
   hrf <- hrf[-(1:(20*scale))][1:scans]
   hrf <- hrf[unique((scale:scans)%/%scale)*scale]
   dim(hrf) <- c(scans/scale,1)
+  
+  #rescale regressor to maximum height of 1.0 for scaling similarity across instances (see hrf_convolve_normalize for details)
+  #only applicable to convolve regressors 
+  if (parmax1 && convolve) { hrf <- hrf/max(hrf) }
   
   if (!convolve) {
     #just return the box car without convolving by HRF
