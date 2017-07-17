@@ -50,7 +50,7 @@ build_design_matrix=function(
   if (is.null(runVolumes)) {
     #determine the last fMRI volume to be analyzed
     runVolumes <- sapply(fitobj$iti_onset, function(itis) {
-          ceiling(itis[length(itis)] + 12.0 ) #fixed 12-second ITI after every run
+          ceiling((itis[length(itis)] + 12.0)/tr ) #fixed 12-second ITI after every run
         })
     message("Assuming that last fMRI volume was 12 seconds after the onset of the last ITI.")
     message(paste0("Resulting lengths: ", paste(runVolumes, collapse=", ")))
